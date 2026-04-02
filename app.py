@@ -4,13 +4,13 @@ import io
 import pdfplumber
 import re
 
-# Versão do Código: 2.0 - Correção de Colunas e Cor
+# VERSÃO ATUALIZADA: 15:40 - Limpeza de Cache Forçada
 st.set_page_config(page_title="ROVO - Conversor Universal", page_icon="🚀")
 st.title("🚀 ROVO Universal Converter")
 
 cliente = st.sidebar.selectbox("Selecione o Cliente", ["Stussy", "Supreme", "Studio Nicholson"])
 st.sidebar.write("---")
-st.sidebar.info("💡 Se as alterações não aparecerem, faça Refresh (F5) na página.")
+st.sidebar.success("✅ CÓDIGO NOVO CARREGADO (15:40)")
 
 st.info(f"Modo Ativo: **{cliente}**")
 
@@ -45,12 +45,11 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (SUPER REFORMULADA) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                # Palavras proibidas na coluna COR
-                palavras_proibidas = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "VEST", "HENLEY", "SCOOP", "NECK", "TOTAL", "QTY", "OTY", "SNM", "SNW", "LAY", "PRODUCTION", "ORDER"]
+                lixo_cores = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "VEST", "HENLEY", "SCOOP", "NECK", "TOTAL", "QTY", "OTY", "LAY", "PRODUCTION", "ORDER"]
 
                 for page in pdf.pages:
                     texto_pg = page.extract_text() or ""
@@ -78,24 +77,17 @@ if arquivo:
                             row_str_full = " ".join([str(x) for x in row_data if x]).replace('\n', ' ')
                             
                             if "€" in row_str_full:
-                                # DESIGNACAO: O modelo da primeira coluna
                                 designacao = str(row_data[0]).split('\n')[0].strip()
                                 
-                                # COR: Filtro cirúrgico
                                 partes = row_str_full.split()
-                                cor_limpa = []
+                                cor_candidata = []
                                 for p in partes:
                                     p_up = p.upper().replace(',', '').replace('.', '')
-                                    if (p_up not in palavras_proibidas and 
-                                        not p_up.isdigit() and 
-                                        "€" not in p_up and 
-                                        "SN" not in p_up and # Remove SNW e SNM
-                                        len(p_up) > 2):
-                                        cor_limpa.append(p)
+                                    if (p_up not in lixo_cores and not p_up.isdigit() and "€" not in p_up and "SN" not in p_up and len(p_up) > 2):
+                                        cor_candidata.append(p)
                                 
-                                cor_resultado = " ".join(cor_limpa).strip()
+                                cor_resultado = " ".join(cor_candidata).strip()
                                 
-                                # PREÇO: Para a coluna D (Pr.Unit.) e E (Moeda) a 0
                                 p_valor = 0
                                 for cell in row_data:
                                     if "€" in str(cell):
@@ -103,26 +95,25 @@ if arquivo:
                                         p_valor = pd.to_numeric(p_txt, errors='coerce')
                                         break
 
-                                # QUANTIDADES
                                 for col_idx, h_text in enumerate(headers):
-                                    tam_detectado = ""
+                                    tam_final = ""
                                     for t in tams_ref:
                                         if t in h_text.upper():
-                                            tam_detectado = h_text
+                                            tam_final = h_text
                                             break
                                     
-                                    if tam_detectado:
+                                    if tam_final:
                                         qtd = pd.to_numeric(row_data[col_idx], errors='coerce')
                                         if qtd and qtd > 0:
                                             lista_dados.append({
-                                                'Referência': "", # Coluna A vazia
-                                                'Designação': designacao, # Coluna B
-                                                'Quant.': qtd, # Coluna C
-                                                'Pr.Unit.': p_valor, # Coluna D
-                                                'Pr.Unit.Moeda': 0, # Coluna E
+                                                'Referência': "", 
+                                                'Designação': designacao, 
+                                                'Quant.': qtd, 
+                                                'Pr.Unit.': p_valor, 
+                                                'Pr.Unit.Moeda': 0, 
                                                 'Tabela de IVA': 4, 
                                                 'Cor': cor_resultado, 
-                                                'Tamanho': tam_detectado, 
+                                                'Tamanho': tam_final, 
                                                 'TOTAL': qtd * p_valor, 
                                                 'Destino': destino, 
                                                 'Aba': "Nicholson_PO"
@@ -137,10 +128,10 @@ if arquivo:
                 for aba_nom in df_final['Aba'].unique():
                     df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
             
-            st.success("✅ Conversão Final Nicholson Concluída!")
+            st.success("✅ Conversão Concluída!")
             st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
-            st.warning("Dados não detetados. Verifique se o PDF é legível.")
+            st.warning("Dados não detetados.")
 
     except Exception as e:
         st.error(f"Erro: {e}")
