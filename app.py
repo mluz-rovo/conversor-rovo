@@ -17,7 +17,7 @@ if arquivo:
     try:
         lista_dados = []
 
-        # --- CASO 1: EXCEL (Stussy ou Supreme) ---
+        # --- LÓGICA EXCEL (STUSSY / SUPREME) ---
         if arquivo.name.endswith('.xlsx'):
             xl = pd.ExcelFile(arquivo, engine='openpyxl')
             if cliente == "Stussy":
@@ -26,7 +26,6 @@ if arquivo:
                     q, p = pd.to_numeric(row[12], errors='coerce'), pd.to_numeric(row[17], errors='coerce')
                     if q and q > 0:
                         lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': row[6], 'Tamanho': row[9], 'TOTAL': q*(p if p else 0), 'Destino': row[4], 'Aba': "Stussy_PO"})
-
             elif cliente == "Supreme":
                 for aba in xl.sheet_names:
                     if "TOTAL" in aba.upper(): continue
@@ -42,53 +41,63 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- CASO 2: PDF (Studio Nicholson) com pdfplumber (SEM JAVA) ---
+        # --- LÓGICA PDF (STUDIO NICHOLSON) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 for page in pdf.pages:
-                    texto = page.extract_text()
+                    texto_completo = page.extract_text()
                     tabelas = page.extract_tables()
                     
-                    # Tentar apanhar o Destino (Ship To) no texto da página
+                    # Tentar apanhar o Destino
                     destino = "Ver PDF"
-                    ship_match = re.search(r"Ship To:\s*(.*)", texto)
+                    ship_match = re.search(r"Ship To:\s*(.*)", texto_completo, re.IGNORECASE)
                     if ship_match:
                         destino = ship_match.group(1).split('\n')[0].strip()
 
                     for table in tabelas:
-                        modelo = ""
+                        modelo_atual = ""
                         for row in table:
-                            # row é uma lista de colunas
-                            row_str = " ".join([str(x) for x in row if x])
+                            # Limpar a linha de valores nulos
+                            row_clean = [str(x).strip() if x else "" for x in row]
+                            row_str = " ".join(row_clean)
                             
-                            # Detetar Modelo
+                            # 1. Detetar Modelo
                             if "SNW -" in row_str or "SNM -" in row_str:
-                                modelo = str(row[0]).split('\n')[0].strip()
+                                modelo_atual = row_clean[0].split('\n')[0]
+                                continue
                             
-                            # Detetar Linha de dados (tem o preço com €)
+                            # 2. Detetar Linha de Produção (Preço com €)
                             if "€" in row_str:
-                                # Ajustar índices baseado no comportamento do pdfplumber
-                                cor = str(row[1]).strip() if row[1] else ""
-                                p_texto = row_str.split('€')[-2].split()[-1].replace(',','.')
-                                p_moeda = pd.to_numeric(p_texto, errors='coerce')
+                                # Preço: Procuramos o valor que tem o € colado ou perto
+                                p_moeda = 0
+                                for celula in row_clean:
+                                    if "€" in celula:
+                                        p_txt = celula.replace('€','').replace(',','.').strip()
+                                        p_moeda = pd.to_numeric(p_txt, errors='coerce')
+                                        break
                                 
-                                # Tamanhos (UK4 a UK14 costumam aparecer nas colunas centrais)
+                                # Cor: Costuma ser o primeiro texto longo após o modelo
+                                cor = row_clean[1] if len(row_clean) > 1 else ""
+                                
+                                # Tamanhos: UK4(Col 10), UK6(11), UK8(12), UK10(13), UK12(14), UK14(15)
                                 nomes_tams = ["UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                                # Tentamos mapear as colunas onde aparecem números
-                                col_tams = [i for i, x in enumerate(row) if str(x).isdigit()]
+                                # No pdfplumber as colunas de tamanhos costumam começar no índice 10
+                                start_col = 10 
                                 
-                                for i_col, idx_real in enumerate(col_tams):
-                                    if i_col < len(nomes_tams):
-                                        q = pd.to_numeric(row[idx_real], errors='coerce')
-                                        if q and q > 0:
+                                for i_tam, nome_tam in enumerate(nomes_tams):
+                                    col_idx = start_col + i_tam
+                                    if col_idx < len(row_clean):
+                                        qtd = pd.to_numeric(row_clean[col_idx], errors='coerce')
+                                        if qtd and qtd > 0:
                                             lista_dados.append({
-                                                'Referência': modelo, 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 
-                                                'Pr.Unit.Moeda': p_moeda, 'Tabela de IVA': 4, 'Cor': cor, 
-                                                'Tamanho': nomes_tams[i_col], 'TOTAL': q * (p_moeda if p_moeda else 0), 
+                                                'Referência': modelo_atual, 'Designação': "", 'Quant.': qtd, 
+                                                'Pr.Unit.': 0, 'Pr.Unit.Moeda': p_moeda, 'Tabela de IVA': 4, 
+                                                'Cor': cor, 'Tamanho': nome_tam, 
+                                                'TOTAL': qtd * (p_moeda if p_moeda else 0), 
                                                 'Destino': destino, 'Aba': "Nicholson_PO"
                                             })
 
-        # --- FINALIZAÇÃO ---
+        # --- EXPORTAÇÃO ---
         df_final = pd.DataFrame(lista_dados)
         if not df_final.empty:
             df_final['CPO'] = ""
@@ -96,11 +105,12 @@ if arquivo:
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 for aba_nom in df_final['Aba'].unique():
-                    df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
-            st.success("✅ Convertido!")
+                    nome_s = str(aba_nom)[:31].replace('/', '-')
+                    df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=nome_s, index=False)
+            st.success(f"✅ Sucesso! Geradas {len(df_final)} linhas.")
             st.download_button("⬇️ Descarregar Excel", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
-            st.warning("Dados não encontrados. Verifique o cliente selecionado.")
+            st.warning("Dados não encontrados. Verifique se selecionou o cliente correto para este ficheiro.")
 
     except Exception as e:
         st.error(f"Erro: {e}")
