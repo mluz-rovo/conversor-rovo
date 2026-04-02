@@ -41,56 +41,61 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF (STUDIO NICHOLSON) - AJUSTADA AO TEU PDF ---
+        # --- LÓGICA PDF (STUDIO NICHOLSON) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 for page in pdf.pages:
-                    linhas = page.extract_text().split('\n')
+                    linhas_texto = page.extract_text().split('\n')
                     
                     destino = "Ver PDF"
-                    modelo_atual = ""
+                    modelo_detetado = ""
                     nomes_tams = ["UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
                     
-                    for idx, linha in enumerate(linhas):
+                    for idx, linha in enumerate(linhas_texto):
                         # 1. Capturar Destino (Ship To)
                         if "Ship To:" in linha:
-                            destino = linhas[idx+1].strip() if idx+1 < len(linhas) else "Ver PDF"
+                            destino = linhas_texto[idx+1].strip() if idx+1 < len(linhas_texto) else "Ver PDF"
                         
-                        # 2. Capturar Modelo (Ex: SORIN SNW-1868)
+                        # 2. Capturar Modelo (Vai para DESIGNAÇÃO)
                         if "SNW-" in linha or "SNM-" in linha:
-                            modelo_atual = linha.split(' ')[0] + " " + linha.split(' ')[1]
+                            # Pega as primeiras palavras que formam o modelo (ex: SORIN SNW-1868)
+                            palavras_modelo = linha.split()
+                            modelo_detetado = " ".join(palavras_modelo[:3])
+                            continue
                         
-                        # 3. Capturar Linha com Quantidades e Preço
-                        if "€" in linha and any(char.isdigit() for char in linha):
+                        # 3. Capturar Linha com Cor e Quantidades
+                        if "€" in linha:
                             partes = linha.split()
                             
-                            # A cor costuma ser a primeira palavra da linha (ex: BLACK, PANNA)
-                            cor = partes[0]
+                            # A cor é a primeira palavra (BLACK, PANNA, etc)
+                            cor_extraida = partes[0]
                             
-                            # O preço é o valor que vem a seguir ao símbolo € (ex: € 29.45)
+                            # Preço unitário (€)
                             p_moeda = 0
                             if "€" in partes:
-                                p_idx = partes.index("€")
-                                p_moeda = pd.to_numeric(partes[p_idx+1].replace(',',''), errors='coerce')
+                                try:
+                                    p_idx = partes.index("€")
+                                    p_moeda = pd.to_numeric(partes[p_idx+1].replace(',',''), errors='coerce')
+                                except: pass
                             
-                            # Capturar as quantidades (são os números antes da Qty/Total)
-                            # No seu PDF: "11 9 8 6 3 37 € 29.45"
-                            qts_candidatas = [pd.to_numeric(p, errors='coerce') for p in partes if p.isdigit()]
-                            # Removemos o último número que é o total da linha (ex: 37)
-                            qts_puras = qts_candidatas[:-1] if len(qts_candidatas) > 1 else qts_candidatas
+                            # Quantidades: filtramos apenas números antes do total da linha
+                            numeros = [p for p in partes if p.replace('.','').isdigit()]
+                            # A Nicholson mete o total da linha antes do €, então removemos o último número (total qty)
+                            qts_reais = numeros[:-1] if len(numeros) > 1 else numeros
                             
-                            for i_q, valor_q in enumerate(qts_puras):
-                                if i_q < len(nomes_tams):
+                            for i_q, val_q in enumerate(qts_reais):
+                                q_num = pd.to_numeric(val_q, errors='coerce')
+                                if q_num and q_num > 0 and i_q < len(nomes_tams):
                                     lista_dados.append({
-                                        'Referência': modelo_atual, 
-                                        'Designação': "", 
-                                        'Quant.': valor_q, 
+                                        'Referência': "", # Podes colocar algo aqui se quiseres
+                                        'Designação': modelo_detetado, 
+                                        'Quant.': q_num, 
                                         'Pr.Unit.': 0, 
                                         'Pr.Unit.Moeda': p_moeda, 
                                         'Tabela de IVA': 4, 
-                                        'Cor': cor, 
+                                        'Cor': cor_extraida, 
                                         'Tamanho': nomes_tams[i_q], 
-                                        'TOTAL': valor_q * (p_moeda if p_moeda else 0), 
+                                        'TOTAL': q_num * (p_moeda if p_moeda else 0), 
                                         'Destino': destino, 
                                         'Aba': "Nicholson_PO"
                                     })
@@ -104,10 +109,10 @@ if arquivo:
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 for aba_nom in df_final['Aba'].unique():
                     df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
-            st.success(f"✅ Sucesso! Convertidas {len(df_final)} linhas.")
-            st.download_button("⬇️ Descarregar Excel", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
+            st.success(f"✅ Conversão de {cliente} concluída!")
+            st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
-            st.warning("Dados não encontrados. Verifique se o PDF segue o padrão Nicholson.")
+            st.warning("Ainda não conseguimos ler os dados. Verifique se o PDF é o original da Studio Nicholson.")
 
     except Exception as e:
         st.error(f"Erro: {e}")
