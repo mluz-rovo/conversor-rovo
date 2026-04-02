@@ -41,10 +41,10 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (DETETIVE DE LINHA) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (PREÇO NO PR.UNIT + COR CORRIGIDA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
-                tams_nich = ["UK4", "UK6", "UK8", "UK10", "UK12", "UK14", "XS", "S", "M", "L", "XL", "XXL"]
+                tams_nich = ["UK4/IT36", "UK6/IT38", "UK8/IT40", "UK10/IT42", "UK12/IT44", "UK14/IT46", "XS", "S", "M", "L", "XL", "XXL"]
                 
                 for page in pdf.pages:
                     linhas = page.extract_text().split('\n')
@@ -54,46 +54,47 @@ if arquivo:
                     for idx, linha in enumerate(linhas):
                         linha_up = linha.upper()
                         
-                        # 1. Destino
+                        # 1. Destino (Ship To)
                         if "SHIP TO:" in linha_up:
                             destino = linhas[idx+1].strip() if idx+1 < len(linhas) else "Ver PDF"
                         
-                        # 2. Modelo (Designação) - Ex: SORIN SNW-1868
+                        # 2. Capturar Modelo para DESIGNAÇÃO
                         if "SNW-" in linha_up or "SNM-" in linha_up:
                             modelo_atual = linha.strip()
+                            continue
                         
-                        # 3. Deteção da Cor e Quantidades (Linha com €)
+                        # 3. Deteção da Linha de Dados (€)
                         if "€" in linha:
-                            # Preço
-                            p_match = re.search(r"€\s*([\d,.]+)", linha)
-                            p_moeda = pd.to_numeric(p_match.group(1).replace(',', ''), errors='coerce') if p_match else 0
-                            
-                            # Cor: Olhamos para a linha imediatamente acima
-                            # No seu PDF, a cor (BLACK/PANNA) aparece sozinha antes dos números
-                            cor_candidata = linhas[idx-1].strip() if idx > 0 else "Ver PDF"
-                            
-                            # Se a linha de cima for "Oty" ou "Qty", tentamos a anterior a essa
-                            if cor_candidata.upper() in ["OTY", "QTY", "QUANTITY"]:
-                                cor_candidata = linhas[idx-2].strip() if idx > 1 else "Ver PDF"
-
-                            # Quantidades: Apanhamos os números na linha do €
                             partes = linha.split()
-                            numeros = [n for n in partes if n.replace('.', '').isdigit()]
-                            # Removemos o total da linha (penúltimo ou último antes do €)
-                            qts_puras = numeros[:-1] if len(numeros) > 1 else numeros
                             
-                            for i_q, val_q in enumerate(qts_puras):
+                            # Preço vai para PR.UNIT (conforme pedido)
+                            p_match = re.search(r"€\s*([\d,.]+)", linha)
+                            p_valor = pd.to_numeric(p_match.group(1).replace(',', ''), errors='coerce') if p_match else 0
+                            
+                            # --- NOVA LÓGICA DE COR ---
+                            # Se a linha começa com a cor (ex: BLACK 11 9 8...), partes[0] é a cor.
+                            cor_final = partes[0]
+                            # Se a cor for "JERSEY" ou "MICRO", tentamos a palavra seguinte
+                            if cor_final in ["JERSEY", "MICRO", "RIB", "QTY", "OTY"]:
+                                cor_final = partes[1] if len(partes) > 1 else cor_final
+                            
+                            # Quantidades
+                            numeros = [n for n in partes if n.replace('.', '').isdigit()]
+                            qts_reais = numeros[:-1] if len(numeros) > 1 else numeros
+                            
+                            for i_q, val_q in enumerate(qts_reais):
                                 if i_q < len(tams_nich):
+                                    q_num = pd.to_numeric(val_q, errors='coerce')
                                     lista_dados.append({
                                         'Referência': "", 
                                         'Designação': modelo_atual, 
-                                        'Quant.': pd.to_numeric(val_q, errors='coerce'), 
-                                        'Pr.Unit.': 0, 
-                                        'Pr.Unit.Moeda': p_moeda, 
+                                        'Quant.': q_num, 
+                                        'Pr.Unit.': p_valor, # Preço aqui
+                                        'Pr.Unit.Moeda': 0,   # Moeda a zero
                                         'Tabela de IVA': 4, 
-                                        'Cor': cor_candidata, 
+                                        'Cor': cor_final, 
                                         'Tamanho': tams_nich[i_q], 
-                                        'TOTAL': pd.to_numeric(val_q, errors='coerce') * p_moeda, 
+                                        'TOTAL': q_num * p_valor, 
                                         'Destino': destino, 
                                         'Aba': "Nicholson_PO"
                                     })
@@ -107,10 +108,10 @@ if arquivo:
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 for aba_nom in df_final['Aba'].unique():
                     df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
-            st.success(f"✅ Conversão concluída!")
-            st.download_button("⬇️ Descarregar Excel", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
+            st.success("✅ Conversão Nicholson corrigida!")
+            st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
-            st.warning("Dados não encontrados. Verifique se o PDF segue o padrão Nicholson.")
+            st.warning("Dados não encontrados.")
 
     except Exception as e:
         st.error(f"Erro: {e}")
