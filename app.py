@@ -20,11 +20,14 @@ if arquivo:
             dados = df_original.iloc[1:].copy()
             for i, row in dados.iterrows():
                 q = pd.to_numeric(row[12], errors='coerce')
-                p = pd.to_numeric(row[17], errors='coerce')
+                p_moeda = pd.to_numeric(row[17], errors='coerce')
                 lista_dados.append({
                     'Referência': "", 'Designação': "", 'Quant.': q,
-                    'Pr.Unit.': p, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 
-                    'Cor': row[6], 'Tamanho': row[9], 'TOTAL': (q if q else 0) * (p if p else 0),
+                    'Pr.Unit.': 0, # Preço unitário base a zero
+                    'Pr.Unit.Moeda': p_moeda, 
+                    'Tabela de IVA': 4, 
+                    'Cor': row[6], 'Tamanho': row[9], 
+                    'TOTAL': (q if q else 0) * (p_moeda if p_moeda else 0),
                     'Destino': row[4], 'Aba_Original': xl.sheet_names[0]
                 })
 
@@ -50,7 +53,7 @@ if arquivo:
                     for i in range(start_row + 1, start_row + 13):
                         if i >= len(df_aba): break
                         cor = df_aba.iloc[i, 6]
-                        preco = pd.to_numeric(df_aba.iloc[i, 17], errors='coerce')
+                        p_moeda = pd.to_numeric(df_aba.iloc[i, 17], errors='coerce')
                         if pd.isna(cor) or str(cor).strip() == "": continue
                             
                         for col_idx, nome_tam in tamanhos_gps.items():
@@ -58,9 +61,11 @@ if arquivo:
                             if pd.notna(qtd) and qtd > 0:
                                 lista_dados.append({
                                     'Referência': "", 'Designação': "", 'Quant.': qtd,
-                                    'Pr.Unit.': preco, 'Pr.Unit.Moeda': preco, 'Tabela de IVA': 4,
+                                    'Pr.Unit.': 0, # Preço unitário base a zero
+                                    'Pr.Unit.Moeda': p_moeda, 
+                                    'Tabela de IVA': 4,
                                     'Cor': cor, 'Tamanho': nome_tam, 
-                                    'TOTAL': qtd * (preco if preco else 0),
+                                    'TOTAL': qtd * (p_moeda if p_moeda else 0),
                                     'Destino': destino_bloco,
                                     'Aba_Original': nome_aba
                                 })
@@ -69,7 +74,7 @@ if arquivo:
 
         if not df_final.empty:
             df_final['CPO'] = ""
-            # Reordenar colunas para garantir que TOTAL e Destino estão onde devem
+            # Reordenar colunas conforme solicitado anteriormente
             colunas_phc = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 
                            'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             
@@ -85,7 +90,7 @@ if arquivo:
                         nome_s = str(dest)[:31].replace('/', '-')
                         df_dest_res.to_excel(writer, sheet_name=nome_s, index=False)
             
-            st.success("✅ Processamento concluído com a coluna Destino!")
+            st.success(f"✅ Processado! Preços em 'Pr.Unit.Moeda' e 'Pr.Unit.' a zero.")
             st.download_button(label="⬇️ Descarregar para PHC", data=output.getvalue(), 
                                file_name=f"IMPORTAR_{cliente}.xlsx", mime="application/vnd.ms-excel")
     except Exception as e:
