@@ -4,7 +4,7 @@ import io
 
 st.set_page_config(page_title="ROVO - Conversor PHC", page_icon="📦")
 
-st.title("📦 Conversor de Encomendas ROVO")
+st.title("ROVO PO Converter")
 st.info("Instruções: Carregue o Excel da Stussy e obtenha o ficheiro pronto para o PHC.")
 
 # Upload do ficheiro
