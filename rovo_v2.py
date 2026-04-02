@@ -74,4 +74,56 @@ if arquivo:
 
                         # Capturar Modelo
                         if any(x in l_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
-                            modelo_atual = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip
+                            modelo_atual = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
+                            continue
+
+                        # Se a linha tem o preço, processamos as quantidades
+                        if "€" in linha:
+                            precos = re.findall(r"(\d+[\.,]\d{2})", linha)
+                            p_unit = float(precos[0].replace(',', '')) if precos else 0
+                            
+                            # Isolar a Cor
+                            cor = "Ver PDF"
+                            for pt in linha.split():
+                                pt_u = pt.upper().replace(',','').replace('.','')
+                                if pt_u not in lixo_geral and not pt_u.isdigit() and "€" not in pt_u and len(pt_u) > 2:
+                                    cor = pt
+                                    break
+                            
+                            # Coordenada Y da linha atual (baseada no símbolo €)
+                            euro_word = [p for p in palavras if p['text'] == "€" and abs(p['top'] - page.extract_text_lines()[i]['top']) < 50]
+                            if not euro_word: continue
+                            y_linha = euro_word[0]['top']
+
+                            for m in mapa_tams:
+                                for p_doc in palavras:
+                                    # Critério 1: Mesma altura horizontal (Y)
+                                    # Critério 2: Mesmo centro vertical (X)
+                                    # Critério 3: É um número
+                                    if abs(p_doc['top'] - y_linha) < 8:
+                                        if abs(((p_doc['x0'] + p_doc['x1']) / 2) - m['centro_x']) < 10:
+                                            if p_doc['text'].isdigit() and p_doc['x1'] <= (x_limite + 5):
+                                                q_num = int(p_doc['text'])
+                                                if q_num > 0:
+                                                    lista_dados.append({
+                                                        'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
+                                                        'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
+                                                        'Cor': cor, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 
+                                                        'Destino': destino, 'CPO': ""
+                                                    })
+
+        if lista_dados:
+            df = pd.DataFrame(lista_dados).drop_duplicates()
+            # Filtro Final de Segurança
+            df = df[~df['Tamanho'].str.contains("FIRST|MAKE|TOTAL|QTY", case=False, na=False)]
+            
+            cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
+            out = io.BytesIO()
+            with pd.ExcelWriter(out, engine='openpyxl') as writer:
+                df[cols].to_excel(writer, index=False, sheet_name="PHC")
+            st.success("✅ V12 Estável: Quantidades e Nomes limpos!")
+            st.download_button("⬇️ Download Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
+        else:
+            st.warning("Dados não encontrados.")
+    except Exception as e:
+        st.error(f"Erro: {e}")
