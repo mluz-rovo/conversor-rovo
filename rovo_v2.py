@@ -40,60 +40,63 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (ROBUSTA) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (HÍBRIDA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                palavras_lixo = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "OTY", "TOTAL", "COST", "FIRSTMAKE"]
+                lixo = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "OTY", "TOTAL", "COST", "SNW", "SNM", "LAY"]
 
                 for page in pdf.pages:
-                    linhas = page.extract_text().split('\n')
+                    texto_completo = page.extract_text()
+                    if not texto_completo: continue
+                    linhas = texto_completo.split('\n')
+                    
                     modelo_atual = ""
                     destino = "Ver PDF"
                     
+                    # Tentar capturar destino no topo
+                    ship_match = re.search(r"Ship To:\s*(.*)", texto_completo, re.IGNORECASE)
+                    if ship_match: destino = ship_match.group(1).split('\n')[0].strip()
+
                     for idx, linha in enumerate(linhas):
                         linha_up = linha.upper()
                         
-                        # 1. Encontrar Destino
-                        if "SHIP TO:" in linha_up:
-                            destino = linhas[idx+1].strip() if idx+1 < len(linhas) else "Ver PDF"
-                        
-                        # 2. Encontrar Modelo (Designação)
+                        # Capturar Modelo
                         if any(x in linha_up for x in ["SNW-", "SNM-", "LAY "]):
                             modelo_atual = linha.strip()
-                            continue
 
-                        # 3. Encontrar Linha de Dados (Preço e Quantidades)
+                        # Detetar linha com Preço e Quantidades
                         if "€" in linha:
                             partes = linha.split()
                             
-                            # Extrair Preço Unitário
-                            precos = [p for p in partes if "€" in p or p.replace(',','').replace('.','').isdigit()]
+                            # 1. Extrair Preço Unitário (Pr.Unit.)
                             p_unit = 0
+                            # Procura o valor que segue o símbolo € ou que tem formato de preço
+                            precos_na_linha = re.findall(r"€?\s*(\d+[\.,]\d{2})", linha)
+                            if precos_na_linha:
+                                # O primeiro preço costuma ser o unitário
+                                p_unit = float(precos_na_linha[0].replace(',', ''))
+
+                            # 2. Extrair Cor (Primeira palavra que não seja lixo ou número)
+                            cor_final = "Ver PDF"
                             for p in partes:
-                                if "€" in p:
-                                    idx_p = partes.index(p)
-                                    val_txt = partes[idx_p+1] if idx_p+1 < len(partes) else p
-                                    p_unit = pd.to_numeric(val_txt.replace('€','').replace(',',''), errors='coerce')
+                                p_clean = p.upper().replace(',', '').replace('.', '')
+                                if p_clean not in lixo and not p_clean.isdigit() and "€" not in p_clean and len(p_clean) > 2:
+                                    cor_final = p
                                     break
                             
-                            # Extrair Cor (Primeiras palavras da linha que não sejam lixo ou números)
-                            cor_partes = []
-                            for p in partes:
-                                p_clean = p.upper().replace(',','')
-                                if p_clean not in palavras_lixo and not p_clean.replace('.','').isdigit() and "€" not in p_clean and len(p_clean) > 2:
-                                    cor_partes.append(p)
-                            cor_final = " ".join(cor_partes[:2]) # Pega as duas primeiras palavras da cor
+                            # 3. Extrair Quantidades (Números inteiros soltos)
+                            # Filtramos apenas números que não fazem parte do preço
+                            nums_qtd = [n for n in partes if n.isdigit() and len(n) < 4]
                             
-                            # Extrair Quantidades
-                            numeros = [n for n in partes if n.replace('.','').isdigit() and "€" not in n]
-                            # Geralmente o último número é o total da linha, removemos
-                            qts = numeros[:-1] if len(numeros) > 1 else numeros
+                            # No formato Nicholson, as quantidades vêm em sequência. 
+                            # Se houver um total no fim, removemos.
+                            qts_reais = nums_qtd[:-1] if len(nums_qtd) > 1 else nums_qtd
 
-                            for i_q, val_q in enumerate(qts):
+                            for i_q, val_q in enumerate(qts_reais):
                                 if i_q < len(tams_ref):
-                                    q_num = pd.to_numeric(val_q, errors='coerce')
-                                    if q_num and q_num > 0:
+                                    q_num = int(val_q)
+                                    if q_num > 0:
                                         lista_dados.append({
                                             'Referência': "", 
                                             'Designação': modelo_atual, 
@@ -113,11 +116,11 @@ if arquivo:
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                df_final[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Conversão concluída!")
-            st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR.xlsx")
+                df_final[cols].to_excel(writer, index=False, sheet_name="Importar_PHC")
+            st.success("✅ Conversão efetuada com sucesso!")
+            st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_STUDIO.xlsx")
         else:
-            st.warning("Não foram encontrados dados. Verifique se o Cliente selecionado corresponde ao ficheiro.")
+            st.warning("Não foram detetados dados válidos para conversão.")
 
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Ocorreu um erro: {e}")
