@@ -15,7 +15,7 @@ if arquivo:
     try:
         lista_dados = []
         
-        # --- LÓGICA EXCEL (STUSSY / SUPREME) MANTIDA ---
+        # --- LÓGICA EXCEL (STUSSY / SUPREME) ---
         if arquivo.name.endswith('.xlsx'):
             xl = pd.ExcelFile(arquivo)
             if cliente == "Stussy":
@@ -39,50 +39,46 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA STUDIO NICHOLSON (VERSÃO ULTRA-LIMPA) ---
+        # --- LÓGICA STUDIO NICHOLSON (VERSÃO ROBUSTA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST/MAKE", "FIRSTMAKE"]
+                lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST/MAKE", "FIRSTMAKE", "DOCKET"]
 
                 for page in pdf.pages:
-                    texto_completo = page.extract_text()
-                    linhas = texto_completo.split('\n')
-                    palavras_pdf = page.extract_words()
+                    palavras = page.extract_words()
+                    texto = page.extract_text()
+                    if not texto: continue
+                    linhas = texto.split('\n')
                     
-                    # 1. Capturar Destino (Ship To) limpo
                     destino_final = "Ver PDF"
-                    for i, linha in enumerate(linhas):
-                        if "Ship To:" in linha:
-                            if i + 1 < len(linhas):
-                                destino_final = linhas[i+1].strip()
-                                break
+                    ship_match = re.search(r"Ship To:\s*(.*)", texto, re.IGNORECASE)
+                    if ship_match:
+                        destino_final = ship_match.group(1).split('\n')[0].strip()
 
-                    # 2. Mapear Cabeçalhos (Coordenadas)
                     mapa_posicoes = []
-                    for p in palavras_pdf:
+                    for p in palavras:
                         txt = p['text'].upper().strip()
                         if any(t == txt or (t in txt and "/" in txt) for t in tams_ref):
-                            mapa_posicoes.append({'tamanho': txt, 'x0': p['x0'], 'x1': p['x1'], 'centro': (p['x0'] + p['x1']) / 2})
+                            mapa_posicoes.append({'tamanho': txt, 'x0': p['x0'], 'x1': p['x1']})
 
-                    # 3. Processar Dados
                     modelo_atual = ""
                     for i, linha in enumerate(linhas):
                         linha_up = linha.upper()
                         
-                        # Bloqueio de Totais e First Make
-                        if any(x in linha_up for x in ["TOTAL", "FIRST/MAKE", "FIRSTMAKE", "DOCKET"]):
+                        # Saltar linhas irrelevantes
+                        if any(x in linha_up for x in ["TOTAL QTY", "FIRST/MAKE", "DOCKET"]):
                             continue
 
-                        # Capturar Modelo para Designação
+                        # Identificar Modelo (Designação)
                         if any(x in linha_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
-                            modelo_atual = re.sub(r"\b(QTY|COST|TOTAL|FIRSTMAKE|DOCKET|DATE|REFERENCE)\b.*", "", linha, flags=re.I).strip()
+                            # Limpeza básica para não perder o modelo
+                            modelo_atual = linha.split("Qty")[0].split("Cost")[0].strip()
                             continue
 
+                        # Processar linha com preços e quantidades
                         if "€" in linha:
                             partes = linha.split()
-                            
-                            # Preço Unitário
                             precos = re.findall(r"(\d+[\.,]\d{2})", linha)
                             p_unit = float(precos[0].replace(',', '')) if precos else 0
                             
@@ -94,30 +90,32 @@ if arquivo:
                                     cor_candidata = pt
                                     break
 
-                            # Capturar Quantidades pela Vertical do Cabeçalho
-                            # Filtramos apenas as palavras que estão nesta linha visual do PDF
-                            y_linha = [p['top'] for p in palavras_pdf if p['text'] in partes and "€" in linha][0]
-                            
+                            # Procurar números nesta linha usando coordenadas horizontais
+                            # Procuramos palavras que estejam na mesma altura (top) aproximada desta linha
+                            # y_ref é a altura da primeira palavra da linha (ex: a cor ou o modelo)
                             for m in mapa_posicoes:
-                                for p_doc in palavras_pdf:
-                                    # Se está na mesma coluna E na mesma altura Y
-                                    if abs(p_doc['x0'] - m['x0']) < 15 and abs(p_doc['top'] - y_linha) < 5:
-                                        if p_doc['text'].isdigit():
-                                            q_num = int(p_doc['text'])
-                                            if q_num > 0:
-                                                lista_dados.append({
-                                                    'Referência': "", 
-                                                    'Designação': modelo_atual, 
-                                                    'Quant.': q_num, 
-                                                    'Pr.Unit.': p_unit, 
-                                                    'Pr.Unit.Moeda': 0, 
-                                                    'Tabela de IVA': 4, 
-                                                    'Cor': cor_candidata, 
-                                                    'Tamanho': m['tamanho'], 
-                                                    'TOTAL': q_num * p_unit, 
-                                                    'Destino': destino_final, 
-                                                    'CPO': ""
-                                                })
+                                for p_doc in palavras:
+                                    # Se o número está alinhado verticalmente com o tamanho
+                                    if abs(p_doc['x0'] - m['x0']) < 25:
+                                        # E se o texto desse número aparece nesta linha específica
+                                        if p_doc['text'].isdigit() and p_doc['text'] in partes:
+                                            # E garantir que não é um número aleatório do topo/fundo
+                                            if p_doc['top'] > 150:
+                                                q_num = int(p_doc['text'])
+                                                if q_num > 0:
+                                                    lista_dados.append({
+                                                        'Referência': "", 
+                                                        'Designação': modelo_atual, 
+                                                        'Quant.': q_num, 
+                                                        'Pr.Unit.': p_unit, 
+                                                        'Pr.Unit.Moeda': 0, 
+                                                        'Tabela de IVA': 4, 
+                                                        'Cor': cor_candidata, 
+                                                        'Tamanho': m['tamanho'], 
+                                                        'TOTAL': q_num * p_unit, 
+                                                        'Destino': destino_final, 
+                                                        'CPO': ""
+                                                    })
 
         if lista_dados:
             df = pd.DataFrame(lista_dados).drop_duplicates()
@@ -125,7 +123,10 @@ if arquivo:
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Ficheiro limpo com sucesso!")
+            st.success("✅ Conversão Studio Nicholson restaurada e limpa!")
             st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
+        else:
+            st.warning("Aviso: O ficheiro foi lido mas não foram encontrados dados de quantidades. Verifique se o Cliente selecionado está correto.")
+
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro Crítico: {e}")
