@@ -17,7 +17,7 @@ if arquivo:
     try:
         lista_dados = []
 
-        # --- LÓGICA EXCEL (STUSSY / SUPREME) - Sem alterações ---
+        # --- LÓGICA EXCEL (STUSSY / SUPREME) ---
         if arquivo.name.endswith('.xlsx'):
             xl = pd.ExcelFile(arquivo, engine='openpyxl')
             if cliente == "Stussy":
@@ -41,90 +41,82 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF (STUDIO NICHOLSON) - REFORMULADA ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (HÍBRIDA UK/IT + XS/XXL) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
+                # Super Lista de Tamanhos Possíveis
+                tams_possiveis = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14", "IT36", "IT38", "IT40", "IT42", "IT44", "IT46"]
+                
                 for page in pdf.pages:
-                    texto_completo = page.extract_text()
-                    linhas = texto_completo.split('\n')
+                    texto_pg = page.extract_text() or ""
+                    tabelas = page.extract_tables()
                     
+                    # 1. Capturar Destino (Ship To)
                     destino = "Ver PDF"
-                    modelo_atual = ""
-                    nomes_tams = ["UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                    
-                    # 1. Encontrar o Destino (Ship To)
-                    ship_match = re.search(r"Ship To:\s*(.*)", texto_completo, re.IGNORECASE)
+                    ship_match = re.search(r"Ship To:\s*(.*)", texto_pg, re.IGNORECASE)
                     if ship_match:
                         destino = ship_match.group(1).split('\n')[0].strip()
 
-                    for idx, linha in enumerate(linhas):
-                        # 2. Identificar o Modelo (Designação)
-                        # Procuramos a linha que contém o código do modelo (ex: SORIN SNW-1868)
-                        if "SNW-" in linha or "SNM-" in linha:
-                            # Filtramos para pegar apenas a parte do nome e código
-                            partes_modelo = linha.split()
-                            # Tenta pegar o nome (SORIN) e o código (SNW-1868)
-                            modelo_atual = ""
-                            for p in partes_modelo:
-                                modelo_atual += p + " "
-                                if "SNW-" in p or "SNM-" in p:
-                                    break
-                            modelo_atual = modelo_atual.strip()
-                            continue
+                    for table in tabelas:
+                        headers = []
+                        start_data = -1
+                        
+                        # 2. Encontrar Linha de Cabeçalho (identifica onde estão os tamanhos)
+                        for row_idx, row in enumerate(table):
+                            row_str = " ".join([str(x).upper() for x in row if x])
+                            # Verifica se a linha contém pelo menos um dos tamanhos da nossa super lista
+                            if any(t in row_str for t in tams_possiveis):
+                                headers = [str(x).replace('\n', ' ').strip() for x in row]
+                                start_data = row_idx + 1
+                                break
+                        
+                        if start_data == -1: continue
 
-                        # 3. Identificar linha de Cores e Quantidades (contém o símbolo €)
-                        if "€" in linha:
-                            partes = linha.split()
+                        # 3. Processar Linhas de Dados
+                        for i in range(start_data, len(table)):
+                            row_data = table[i]
+                            row_str = " ".join([str(x) for x in row_data if x])
                             
-                            # A Cor costuma ser o primeiro elemento de texto da linha
-                            # Vamos garantir que não apanhamos lixo (como "MICRO" ou "RIB")
-                            cor_candidata = partes[0]
-                            if cor_candidata.upper() in ["MICRO", "JERSEY", "RIB"]:
-                                # Se a primeira palavra for micro rib, a cor deve ser a segunda
-                                cor_candidata = partes[1] if len(partes) > 1 else partes[0]
-                            
-                            # Preço Moeda
-                            p_moeda = 0
-                            try:
-                                # O preço costuma estar a seguir ao símbolo €
-                                if "€" in partes:
-                                    p_idx = partes.index("€")
-                                    p_txt = partes[p_idx+1].replace(',','').strip()
-                                    p_moeda = pd.to_numeric(p_txt, errors='coerce')
-                                else:
-                                    # Caso o € esteja colado ao número
-                                    for p in partes:
-                                        if "€" in p:
-                                            p_txt = p.replace('€','').replace(',','').strip()
-                                            p_moeda = pd.to_numeric(p_txt, errors='coerce')
+                            if "€" in row_str:
+                                # Tenta capturar Designação (primeira coluna) e Cor (segunda coluna)
+                                designacao = str(row_data[0]).split('\n')[0] if row_data[0] else "Nicholson Item"
+                                cor = str(row_data[1]).split('\n')[-1] if len(row_data) > 1 else "Ver PDF"
+                                
+                                # Extrair Preço Unitário
+                                p_moeda = 0
+                                for cell in row_data:
+                                    if "€" in str(cell):
+                                        p_txt = str(cell).replace('€','').replace(',','.').replace(' ', '').strip()
+                                        p_moeda = pd.to_numeric(p_txt, errors='coerce')
+                                        break
+                                
+                                # 4. Mapear Quantidades com base nos headers detetados
+                                for col_idx, h_text in enumerate(headers):
+                                    # Verifica se este cabeçalho é um tamanho conhecido
+                                    tamanho_limpo = ""
+                                    for t in tams_possiveis:
+                                        if t in h_text.upper():
+                                            tamanho_limpo = t
                                             break
-                            except: pass
+                                    
+                                    if tamanho_limpo:
+                                        qtd = pd.to_numeric(row_data[col_idx], errors='coerce')
+                                        if qtd and qtd > 0:
+                                            lista_dados.append({
+                                                'Referência': "", 
+                                                'Designação': designacao, 
+                                                'Quant.': qtd, 
+                                                'Pr.Unit.': 0, 
+                                                'Pr.Unit.Moeda': p_moeda, 
+                                                'Tabela de IVA': 4, 
+                                                'Cor': cor, 
+                                                'Tamanho': h_text, # Mantém o texto original do PDF (ex: UK12/IT44)
+                                                'TOTAL': qtd * (p_moeda if p_moeda else 0), 
+                                                'Destino': destino, 
+                                                'Aba': "Nicholson_PO"
+                                            })
 
-                            # Quantidades: Apanhamos todos os números antes do preço/total
-                            # No seu PDF os tamanhos vêm antes da Qty Total
-                            numeros = [n for n in partes if n.replace('.','').isdigit()]
-                            # A Nicholson tem: [Qtd1, Qtd2, ..., QtdTotal]
-                            # Removemos o último número que é a soma (Qty)
-                            qts_puras = numeros[:-1] if len(numeros) > 1 else numeros
-                            
-                            for i_q, val_q in enumerate(qts_puras):
-                                q_num = pd.to_numeric(val_q, errors='coerce')
-                                if q_num and q_num > 0 and i_q < len(nomes_tams):
-                                    lista_dados.append({
-                                        'Referência': "", 
-                                        'Designação': modelo_atual, 
-                                        'Quant.': q_num, 
-                                        'Pr.Unit.': 0, 
-                                        'Pr.Unit.Moeda': p_moeda, 
-                                        'Tabela de IVA': 4, 
-                                        'Cor': cor_candidata, 
-                                        'Tamanho': nomes_tams[i_q], 
-                                        'TOTAL': q_num * (p_moeda if p_moeda else 0), 
-                                        'Destino': destino, 
-                                        'Aba': "Nicholson_PO"
-                                    })
-
-        # --- EXPORTAÇÃO ---
+        # --- EXPORTAÇÃO FINAL ---
         df_final = pd.DataFrame(lista_dados)
         if not df_final.empty:
             df_final['CPO'] = ""
@@ -133,10 +125,10 @@ if arquivo:
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 for aba_nom in df_final['Aba'].unique():
                     df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
-            st.success(f"✅ Conversão concluída!")
-            st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
+            st.success(f"✅ Conversão concluída! Processadas {len(df_final)} linhas.")
+            st.download_button("⬇️ Descarregar Excel para PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
-            st.warning("Dados não encontrados. Verifique se o PDF é o original da Studio Nicholson.")
+            st.warning("Dados não encontrados. Verifique se o PDF tem a tabela visível ou se o cliente está correto.")
 
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro técnico: {e}")
