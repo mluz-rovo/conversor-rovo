@@ -41,87 +41,64 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (LIMPEZA RADICAL DE COR) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (DETETIVE DE LINHA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
-                tams_possiveis = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                # Lista de palavras que NUNCA são cores
-                lixo_textual = ["JERSEY", "MICRO", "RIB", "COTTON", "MERCERIZED", "BRANDED", "BOXY", "FIT", "T-SHIRT", "VEST", "HENLEY", "SHORT", "SLEEVE", "SCOOP", "NECK", "OPTIC", "Oty", "Qty", "FIRST/MAKE", "COST", "TOTAL", "SNW", "SNM", "LAY", "PRODUCTION", "ORDER"]
-
+                tams_nich = ["UK4", "UK6", "UK8", "UK10", "UK12", "UK14", "XS", "S", "M", "L", "XL", "XXL"]
+                
                 for page in pdf.pages:
-                    texto_pg = page.extract_text() or ""
-                    tabelas = page.extract_tables()
-                    
+                    linhas = page.extract_text().split('\n')
                     destino = "Ver PDF"
-                    ship_match = re.search(r"Ship To:\s*(.*)", texto_pg, re.IGNORECASE)
-                    if ship_match:
-                        destino = ship_match.group(1).split('\n')[0].strip()
-
-                    for table in tabelas:
-                        headers = []
-                        start_data = -1
-                        for row_idx, row in enumerate(table):
-                            row_str = " ".join([str(x).upper() for x in row if x])
-                            if any(t in row_str for t in tams_possiveis):
-                                headers = [str(x).replace('\n', ' ').strip() for x in row]
-                                start_data = row_idx + 1
-                                break
+                    modelo_atual = ""
+                    
+                    for idx, linha in enumerate(linhas):
+                        linha_up = linha.upper()
                         
-                        if start_data == -1: continue
-
-                        for i in range(start_data, len(table)):
-                            row_data = table[i]
-                            # row_str_completa junta todas as células daquela linha de dados
-                            row_str_completa = " ".join([str(x) for x in row_data if x]).replace('\n', ' ')
+                        # 1. Destino
+                        if "SHIP TO:" in linha_up:
+                            destino = linhas[idx+1].strip() if idx+1 < len(linhas) else "Ver PDF"
+                        
+                        # 2. Modelo (Designação) - Ex: SORIN SNW-1868
+                        if "SNW-" in linha_up or "SNM-" in linha_up:
+                            modelo_atual = linha.strip()
+                        
+                        # 3. Deteção da Cor e Quantidades (Linha com €)
+                        if "€" in linha:
+                            # Preço
+                            p_match = re.search(r"€\s*([\d,.]+)", linha)
+                            p_moeda = pd.to_numeric(p_match.group(1).replace(',', ''), errors='coerce') if p_match else 0
                             
-                            if "€" in row_str_completa:
-                                # 1. DESIGNACAO: Pegamos na primeira célula e limpamos códigos
-                                designacao = str(row_data[0]).split('\n')[0].strip()
-                                
-                                # 2. COR (A Nova Lógica Radical):
-                                # Pegamos no texto bruto da linha
-                                partes = row_str_completa.split()
-                                cor_limpa = []
-                                for p in partes:
-                                    p_clean = p.upper().replace(',', '').replace('.', '')
-                                    # Só aceitamos se: não for lixo, não for número, não tiver €, não for o modelo
-                                    if (p_clean not in lixo_textual and 
-                                        not p_clean.isdigit() and 
-                                        "€" not in p_clean and 
-                                        "SNW" not in p_clean and 
-                                        "SNM" not in p_clean and
-                                        len(p_clean) > 2):
-                                        cor_limpa.append(p)
-                                
-                                # O resultado deve ser "BLACK" ou "PANNA" ou "OPTIC WHITE"
-                                cor_final = " ".join(cor_limpa).strip()
-                                
-                                # 3. PREÇO
-                                p_moeda = 0
-                                for cell in row_data:
-                                    if "€" in str(cell):
-                                        p_txt = str(cell).replace('€','').replace(',','.').replace(' ', '').strip()
-                                        p_moeda = pd.to_numeric(p_txt, errors='coerce')
-                                        break
-                                
-                                # 4. QUANTIDADES
-                                for col_idx, h_text in enumerate(headers):
-                                    tamanho_encontrado = ""
-                                    for t in tams_possiveis:
-                                        if t in h_text.upper():
-                                            tamanho_encontrado = h_text
-                                            break
-                                    
-                                    if tamanho_encontrado:
-                                        qtd = pd.to_numeric(row_data[col_idx], errors='coerce')
-                                        if qtd and qtd > 0:
-                                            lista_dados.append({
-                                                'Referência': "", 'Designação': designacao, 'Quant.': qtd, 
-                                                'Pr.Unit.': 0, 'Pr.Unit.Moeda': p_moeda, 'Tabela de IVA': 4, 
-                                                'Cor': cor_final, 'Tamanho': tamanho_encontrado, 
-                                                'TOTAL': qtd * (p_moeda if p_moeda else 0), 'Destino': destino, 'Aba': "Nicholson_PO"
-                                            })
+                            # Cor: Olhamos para a linha imediatamente acima
+                            # No seu PDF, a cor (BLACK/PANNA) aparece sozinha antes dos números
+                            cor_candidata = linhas[idx-1].strip() if idx > 0 else "Ver PDF"
+                            
+                            # Se a linha de cima for "Oty" ou "Qty", tentamos a anterior a essa
+                            if cor_candidata.upper() in ["OTY", "QTY", "QUANTITY"]:
+                                cor_candidata = linhas[idx-2].strip() if idx > 1 else "Ver PDF"
 
+                            # Quantidades: Apanhamos os números na linha do €
+                            partes = linha.split()
+                            numeros = [n for n in partes if n.replace('.', '').isdigit()]
+                            # Removemos o total da linha (penúltimo ou último antes do €)
+                            qts_puras = numeros[:-1] if len(numeros) > 1 else numeros
+                            
+                            for i_q, val_q in enumerate(qts_puras):
+                                if i_q < len(tams_nich):
+                                    lista_dados.append({
+                                        'Referência': "", 
+                                        'Designação': modelo_atual, 
+                                        'Quant.': pd.to_numeric(val_q, errors='coerce'), 
+                                        'Pr.Unit.': 0, 
+                                        'Pr.Unit.Moeda': p_moeda, 
+                                        'Tabela de IVA': 4, 
+                                        'Cor': cor_candidata, 
+                                        'Tamanho': tams_nich[i_q], 
+                                        'TOTAL': pd.to_numeric(val_q, errors='coerce') * p_moeda, 
+                                        'Destino': destino, 
+                                        'Aba': "Nicholson_PO"
+                                    })
+
+        # --- EXPORTAÇÃO ---
         df_final = pd.DataFrame(lista_dados)
         if not df_final.empty:
             df_final['CPO'] = ""
@@ -130,9 +107,10 @@ if arquivo:
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 for aba_nom in df_final['Aba'].unique():
                     df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
-            st.success("✅ Conversão Nicholson concluída com limpeza radical!")
-            st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
+            st.success(f"✅ Conversão concluída!")
+            st.download_button("⬇️ Descarregar Excel", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
-            st.warning("Dados não encontrados.")
+            st.warning("Dados não encontrados. Verifique se o PDF segue o padrão Nicholson.")
+
     except Exception as e:
         st.error(f"Erro: {e}")
