@@ -15,13 +15,33 @@ if arquivo:
     try:
         lista_dados = []
         
+        # --- LÓGICA EXCEL (STUSSY / SUPREME) ---
         if arquivo.name.endswith('.xlsx'):
-            # ... (Lógica Excel Stussy/Supreme mantida)
-            pass
+            xl = pd.ExcelFile(arquivo)
+            if cliente == "Stussy":
+                df = xl.parse(xl.sheet_names[0], header=None)
+                for i, row in df.iloc[1:].iterrows():
+                    q, p = pd.to_numeric(row[12], errors='coerce'), pd.to_numeric(row[17], errors='coerce')
+                    if q and q > 0:
+                        lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': row[6], 'Tamanho': row[9], 'TOTAL': q*(p if p else 0), 'Destino': row[4], 'CPO': ""})
+            elif cliente == "Supreme":
+                for aba in xl.sheet_names:
+                    if "TOTAL" in aba.upper(): continue
+                    df = xl.parse(aba, header=None)
+                    tams = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
+                    for start in range(16, len(df), 14):
+                        dest = str(df.iloc[start, 0]).strip()
+                        for i in range(start + 1, start + 13):
+                            if i >= len(df) or pd.isna(df.iloc[i, 6]): continue
+                            p = pd.to_numeric(df.iloc[i, 17], errors='coerce')
+                            for c_idx, t_nom in tams.items():
+                                q = pd.to_numeric(df.iloc[i, c_idx], errors='coerce')
+                                if q and q > 0:
+                                    lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
+        # --- LÓGICA PDF STUDIO NICHOLSON (DINÂMICA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
-                # Grelhas de referência para comparação
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
                 lixo_cor = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL"]
 
@@ -32,52 +52,43 @@ if arquivo:
                     
                     modelo_atual = ""
                     destino_atual = "Ver PDF"
-                    mapeamento_tamanhos = {} # Guardará {coluna_index: "Tamanho"}
+                    mapa_tams = {} 
 
                     for i, linha in enumerate(linhas):
                         linha_up = linha.upper()
                         
                         if "SHIP TO:" in linha_up and i + 1 < len(linhas):
-                            destino_atual = linhas[i+1].strip() [cite: 31]
+                            destino_atual = linhas[i+1].strip()
                         
-                        # 1. Identificar o Modelo e a Linha de Cabeçalho (Tamanhos)
                         if any(x in linha_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
-                            modelo_atual = re.sub(r"\b(QTY|COST|TOTAL|FIRSTMAKE)\b", "", linha, flags=re.I).strip() [cite: 31]
+                            modelo_atual = re.sub(r"\b(QTY|COST|TOTAL|FIRSTMAKE)\b", "", linha, flags=re.I).strip()
                             
-                            # Procurar a linha de tamanhos imediatamente abaixo ou na mesma
-                            idx_busca = i
-                            while idx_busca < min(i + 3, len(linhas)):
-                                l_busca = linhas[idx_busca].upper()
-                                partes_h = l_busca.split()
-                                # Criar mapa de posições: ex {2: "S", 3: "M"}
-                                mapeamento_tamanhos = {}
+                            # Procurar a linha de tamanhos (cabeçalho)
+                            for j in range(i, min(i + 4, len(linhas))):
+                                partes_h = linhas[j].upper().split()
+                                temp_map = {}
                                 for idx_p, p in enumerate(partes_h):
                                     for t in tams_ref:
-                                        if t == p or (t in p and "/" in p): # Trata UK4 / IT36
-                                            mapeamento_tamanhos[idx_p] = p
-                                            break
-                                if mapeamento_tamanhos: break
-                                idx_busca += 1
+                                        if t == p or (t in p and "/" in p):
+                                            temp_map[idx_p] = p
+                                if temp_map:
+                                    mapa_tams = temp_map
+                                    break
                             continue
 
-                        # 2. Capturar Dados (Linha com €)
                         if "€" in linha:
                             partes = linha.split()
-                            
-                            # Preço Unitário
                             precos = re.findall(r"(\d+[\.,]\d{2})", linha)
-                            p_unit = float(precos[0].replace(',', '')) if precos else 0 [cite: 31]
+                            p_unit = float(precos[0].replace(',', '')) if precos else 0
                             
-                            # Cor (Filtro)
                             cor_candidata = ""
                             for p in partes:
                                 p_up = p.upper().replace(',', '').replace('.', '')
                                 if p_up not in lixo_cor and not p_up.isdigit() and "€" not in p_up and len(p_up) > 2:
                                     cor_candidata = p
-                                    break [cite: 31]
+                                    break
                             
-                            # Quantidades baseadas na POSIÇÃO do cabeçalho
-                            for col_idx, tamanho_nome in mapeamento_tamanhos.items():
+                            for col_idx, tam_nome in mapa_tams.items():
                                 if col_idx < len(partes):
                                     val_q = partes[col_idx]
                                     if val_q.isdigit():
@@ -86,9 +97,9 @@ if arquivo:
                                             lista_dados.append({
                                                 'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
                                                 'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
-                                                'Cor': cor_candidata, 'Tamanho': tamanho_nome,
+                                                'Cor': cor_candidata, 'Tamanho': tam_nome,
                                                 'TOTAL': q_num * p_unit, 'Destino': destino_atual, 'CPO': ""
-                                            }) [cite: 31]
+                                            })
 
         if lista_dados:
             df = pd.DataFrame(lista_dados)
@@ -96,7 +107,7 @@ if arquivo:
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Conversão Inteligente Concluída!")
-            st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_PHC.xlsx") [cite: 31]
+            st.success("✅ Conversão Concluída!")
+            st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
     except Exception as e:
         st.error(f"Erro: {e}")
