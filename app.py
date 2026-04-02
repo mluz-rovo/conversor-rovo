@@ -41,11 +41,12 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (MELHORIA NA COR) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (LIMPEZA RADICAL DE COR) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_possiveis = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                palavras_a_ignorar = ["JERSEY", "MICRO", "RIB", "COTTON", "MERCERIZED", "BRANDED", "BOXY", "FIT", "T-SHIRT", "VEST", "HENLEY", "SHORT", "SLEEVE", "SCOOP", "NECK"]
+                # Lista de palavras que NUNCA são cores
+                lixo_textual = ["JERSEY", "MICRO", "RIB", "COTTON", "MERCERIZED", "BRANDED", "BOXY", "FIT", "T-SHIRT", "VEST", "HENLEY", "SHORT", "SLEEVE", "SCOOP", "NECK", "OPTIC", "Oty", "Qty", "FIRST/MAKE", "COST", "TOTAL", "SNW", "SNM", "LAY", "PRODUCTION", "ORDER"]
 
                 for page in pdf.pages:
                     texto_pg = page.extract_text() or ""
@@ -70,23 +71,32 @@ if arquivo:
 
                         for i in range(start_data, len(table)):
                             row_data = table[i]
-                            row_str = " ".join([str(x) for x in row_data if x])
+                            # row_str_completa junta todas as células daquela linha de dados
+                            row_str_completa = " ".join([str(x) for x in row_data if x]).replace('\n', ' ')
                             
-                            if "€" in row_str:
-                                designacao = str(row_data[0]).split('\n')[0] if row_data[0] else "Item"
+                            if "€" in row_str_completa:
+                                # 1. DESIGNACAO: Pegamos na primeira célula e limpamos códigos
+                                designacao = str(row_data[0]).split('\n')[0].strip()
                                 
-                                # --- NOVA LÓGICA DE COR ---
-                                # Analisamos as primeiras colunas da linha onde estão as quantidades
-                                texto_cor_bruto = " ".join([str(row_data[0]), str(row_data[1])]).upper()
-                                partes_cor = texto_cor_bruto.split()
-                                # Filtramos: tiramos o modelo e as palavras genéricas
-                                cor_final = [p for p in partes_cor if p not in palavras_a_ignorar and "SNW" not in p and "SNM" not in p and not p.replace('.','').isdigit() and "€" not in p]
-                                cor_resultado = " ".join(cor_final).strip()
+                                # 2. COR (A Nova Lógica Radical):
+                                # Pegamos no texto bruto da linha
+                                partes = row_str_completa.split()
+                                cor_limpa = []
+                                for p in partes:
+                                    p_clean = p.upper().replace(',', '').replace('.', '')
+                                    # Só aceitamos se: não for lixo, não for número, não tiver €, não for o modelo
+                                    if (p_clean not in lixo_textual and 
+                                        not p_clean.isdigit() and 
+                                        "€" not in p_clean and 
+                                        "SNW" not in p_clean and 
+                                        "SNM" not in p_clean and
+                                        len(p_clean) > 2):
+                                        cor_limpa.append(p)
                                 
-                                # Se ficar vazio, tentamos a célula específica da cor (geralmente a 2ª)
-                                if not cor_resultado:
-                                    cor_resultado = str(row_data[1]).split('\n')[-1] if len(row_data) > 1 else "Ver PDF"
-
+                                # O resultado deve ser "BLACK" ou "PANNA" ou "OPTIC WHITE"
+                                cor_final = " ".join(cor_limpa).strip()
+                                
+                                # 3. PREÇO
                                 p_moeda = 0
                                 for cell in row_data:
                                     if "€" in str(cell):
@@ -94,6 +104,7 @@ if arquivo:
                                         p_moeda = pd.to_numeric(p_txt, errors='coerce')
                                         break
                                 
+                                # 4. QUANTIDADES
                                 for col_idx, h_text in enumerate(headers):
                                     tamanho_encontrado = ""
                                     for t in tams_possiveis:
@@ -107,7 +118,7 @@ if arquivo:
                                             lista_dados.append({
                                                 'Referência': "", 'Designação': designacao, 'Quant.': qtd, 
                                                 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p_moeda, 'Tabela de IVA': 4, 
-                                                'Cor': cor_resultado, 'Tamanho': tamanho_encontrado, 
+                                                'Cor': cor_final, 'Tamanho': tamanho_encontrado, 
                                                 'TOTAL': qtd * (p_moeda if p_moeda else 0), 'Destino': destino, 'Aba': "Nicholson_PO"
                                             })
 
@@ -119,7 +130,7 @@ if arquivo:
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 for aba_nom in df_final['Aba'].unique():
                     df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
-            st.success(f"✅ Conversão concluída!")
+            st.success("✅ Conversão Nicholson concluída com limpeza radical!")
             st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
             st.warning("Dados não encontrados.")
