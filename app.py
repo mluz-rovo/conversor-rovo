@@ -30,8 +30,7 @@ if arquivo:
 
         elif cliente == "Supreme":
             for nome_aba in xl.sheet_names:
-                if "TOTAL" in nome_aba.upper():
-                    continue
+                if "TOTAL" in nome_aba.upper(): continue
                 
                 df_aba = xl.parse(nome_aba, header=None)
                 
@@ -43,20 +42,16 @@ if arquivo:
                         if pd.notna(val_tam) and str(val_tam).strip() != "":
                             tamanhos_gps[col_idx] = str(val_tam).strip()
 
-                # Percorrer em blocos de 14 linhas (Destinos em 17, 31, 45...)
+                # Blocos de 14 linhas (Destinos em 17, 31, 45...)
                 for start_row in range(16, len(df_aba), 14):
-                    novo_destino = str(df_aba.iloc[start_row, 0]).strip()
-                    if pd.isna(novo_destino) or novo_destino == "" or novo_destino == "nan":
-                        continue
+                    destino_bloco = str(df_aba.iloc[start_row, 0]).strip()
+                    if pd.isna(destino_bloco) or destino_bloco == "" or destino_bloco == "nan": continue
                     
                     for i in range(start_row + 1, start_row + 13):
                         if i >= len(df_aba): break
-                        
-                        cor = df_aba.iloc[i, 6]   # Coluna G
-                        preco = pd.to_numeric(df_aba.iloc[i, 17], errors='coerce') # Coluna R
-                        
-                        if pd.isna(cor) or str(cor).strip() == "":
-                            continue
+                        cor = df_aba.iloc[i, 6]
+                        preco = pd.to_numeric(df_aba.iloc[i, 17], errors='coerce')
+                        if pd.isna(cor) or str(cor).strip() == "": continue
                             
                         for col_idx, nome_tam in tamanhos_gps.items():
                             qtd = pd.to_numeric(df_aba.iloc[i, col_idx], errors='coerce')
@@ -66,34 +61,32 @@ if arquivo:
                                     'Pr.Unit.': preco, 'Pr.Unit.Moeda': preco, 'Tabela de IVA': 4,
                                     'Cor': cor, 'Tamanho': nome_tam, 
                                     'TOTAL': qtd * (preco if preco else 0),
-                                    'Destino': novo_destino,
+                                    'Destino': destino_bloco,
                                     'Aba_Original': nome_aba
                                 })
                                 
         df_final = pd.DataFrame(lista_dados)
 
         if not df_final.empty:
-            # Adicionar coluna CPO no final
             df_final['CPO'] = ""
-
+            # Reordenar colunas para garantir que TOTAL e Destino estão onde devem
+            colunas_phc = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 
+                           'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
+            
             output = io.BytesIO()
             with pd.ExcelWriter(output, engine='openpyxl') as writer:
-                # Se for Supreme, mantemos as abas originais
                 if cliente == "Supreme":
                     for aba in df_final['Aba_Original'].unique():
-                        df_aba_res = df_final[df_final['Aba_Original'] == aba].drop(columns=['Aba_Original', 'Destino'])
+                        df_aba_res = df_final[df_final['Aba_Original'] == aba][colunas_phc]
                         df_aba_res.to_excel(writer, sheet_name=str(aba)[:31], index=False)
                 else:
-                    # Se for Stussy, separamos por Destino
                     for dest in df_final['Destino'].unique():
+                        df_dest_res = df_final[df_final['Destino'] == dest][colunas_phc]
                         nome_s = str(dest)[:31].replace('/', '-')
-                        df_final[df_final['Destino'] == dest].drop(columns=['Aba_Original', 'Destino']).to_excel(writer, sheet_name=nome_s, index=False)
+                        df_dest_res.to_excel(writer, sheet_name=nome_s, index=False)
             
-            st.success(f"✅ Processamento concluído!")
+            st.success("✅ Processamento concluído com a coluna Destino!")
             st.download_button(label="⬇️ Descarregar para PHC", data=output.getvalue(), 
                                file_name=f"IMPORTAR_{cliente}.xlsx", mime="application/vnd.ms-excel")
-        else:
-            st.warning("Nenhum dado encontrado com as regras definidas.")
-
     except Exception as e:
         st.error(f"Erro: {e}")
