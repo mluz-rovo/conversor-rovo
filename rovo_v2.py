@@ -39,85 +39,87 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA STUDIO NICHOLSON (RECUPERADA E ESTÁVEL) ---
+        # --- LÓGICA STUDIO NICHOLSON (FILTRO RIGOROSO DE TOTAIS) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                # Palavras que baralham a Cor
-                lixo_cor = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL"]
+                # Palavras que definem uma linha como "Lixo" ou "Total"
+                palavras_proibidas = ["TOTAL", "QTY", "COST", "FIRST", "MAKE", "DOCKET", "SHIP", "DATE"]
+                # Palavras que descrevem o tecido mas não são a COR
+                lixo_cor = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT"]
 
                 for page in pdf.pages:
                     texto = page.extract_text()
                     if not texto: continue
                     linhas = texto.split('\n')
-                    palavras = page.extract_words()
+                    palavras_pdf = page.extract_words()
                     
-                    # 1. Destino
                     destino = "Ver PDF"
                     for i, l in enumerate(linhas):
                         if "Ship To:" in l and i+1 < len(linhas):
                             destino = linhas[i+1].strip()
                             break
 
-                    # 2. Mapa de Coordenadas
                     mapa = []
-                    for p in palavras:
-                        t_up = p['text'].upper()
+                    for p in palavras_pdf:
+                        t_up = p['text'].upper().strip()
                         if any(t == t_up or (t in t_up and "/" in t_up) for t in tams_ref):
                             mapa.append({'tam': t_up, 'x0': p['x0'], 'x1': p['x1']})
 
-                    # 3. Extração
-                    modelo = ""
+                    modelo_limpo = ""
                     for i, linha in enumerate(linhas):
                         l_up = linha.upper()
                         
-                        # Identificar Modelo e limpar lixo da Designação
+                        # Capturar e limpar Designação
                         if any(x in l_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
-                            # Corta tudo a partir de "Qty" ou "Cost"
-                            modelo = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
+                            modelo_limpo = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
                             continue
                         
-                        # Saltar linhas de totais ou amostras
-                        if "TOTAL" in l_up or "FIRST" in l_up:
-                            continue
-
                         if "€" in linha:
                             pts = linha.split()
+                            
+                            # FILTRO CRÍTICO: Se a primeira palavra for "Total" ou "First", ignorar linha
+                            if any(proibida in pts[0].upper() for proibida in ["TOTAL", "FIRST", "QTY"]):
+                                continue
+
+                            # Extrair Cor real
+                            cor_real = ""
+                            for pt in pts:
+                                pt_u = pt.upper().replace(',','').replace('.','')
+                                if pt_u not in lixo_cor and pt_u not in palavras_proibidas and not pt_u.isdigit() and "€" not in pt_u and len(pt_u) > 2:
+                                    cor_real = pt
+                                    break
+                            
+                            # Se não encontrou uma cor válida, é provável que seja uma linha de total disfarçada
+                            if not cor_real:
+                                continue
+
                             precos = re.findall(r"(\d+[\.,]\d{2})", linha)
                             p_v = float(precos[0].replace(',', '')) if precos else 0
                             
-                            # Cor (Filtro)
-                            cor = ""
-                            for pt in pts:
-                                pt_u = pt.upper().replace(',','').replace('.','')
-                                if pt_u not in lixo_cor and not pt_u.isdigit() and "€" not in pt_u and len(pt_u) > 2:
-                                    cor = pt
-                                    break
-
-                            # Buscar quantidades por coluna
+                            # Extrair quantidades por coordenadas
                             for m in mapa:
-                                for p_doc in palavras:
-                                    # Se o número está alinhado com o tamanho E pertence a esta linha de texto
-                                    if abs(p_doc['x0'] - m['x0']) < 25 and p_doc['text'].isdigit() and p_doc['text'] in pts:
-                                        if p_doc['top'] > 150: # Evita cabeçalhos
+                                for p_doc in palavras_pdf:
+                                    if abs(p_doc['x0'] - m['x0']) < 20 and p_doc['text'].isdigit() and p_doc['text'] in pts:
+                                        # Garantir que o número está na mesma "altura" da linha do preço
+                                        if abs(p_doc['top'] - [w['top'] for w in palavras_pdf if w['text'] == "€" and abs(w['top'] - p_doc['top']) < 10][0]) < 5:
                                             q_num = int(p_doc['text'])
                                             if q_num > 0:
                                                 lista_dados.append({
-                                                    'Referência': "", 'Designação': modelo, 'Quant.': q_num,
+                                                    'Referência': "", 'Designação': modelo_limpo, 'Quant.': q_num,
                                                     'Pr.Unit.': p_v, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
-                                                    'Cor': cor, 'Tamanho': m['tam'], 'TOTAL': q_num * p_v, 
+                                                    'Cor': cor_real, 'Tamanho': m['tam'], 'TOTAL': q_num * p_v, 
                                                     'Destino': destino, 'CPO': ""
                                                 })
 
         if lista_dados:
             df = pd.DataFrame(lista_dados).drop_duplicates()
+            # Ordenar para manter coerência
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Recuperado! Quantidades e nomes corrigidos.")
+            st.success("✅ Conversão limpa! Totais e 'First Make' eliminados.")
             st.download_button("⬇️ Download Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
-        else:
-            st.warning("Dados não detetados. Verifique o cliente.")
     except Exception as e:
         st.error(f"Erro: {e}")
