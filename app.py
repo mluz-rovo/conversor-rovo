@@ -41,63 +41,69 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF (STUDIO NICHOLSON) ---
+        # --- LÓGICA PDF (STUDIO NICHOLSON) - VERSÃO "REDE DE PESCA" ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 for page in pdf.pages:
-                    texto_completo = page.extract_text()
+                    texto_pg = page.extract_text() or ""
                     tabelas = page.extract_tables()
                     
-                    # Tentar apanhar o Destino
+                    # 1. Tentar capturar o Destino (Ship To)
                     destino = "Ver PDF"
-                    ship_match = re.search(r"Ship To:\s*(.*)", texto_completo, re.IGNORECASE)
+                    ship_match = re.search(r"Ship To:\s*(.*)", texto_pg, re.IGNORECASE)
                     if ship_match:
                         destino = ship_match.group(1).split('\n')[0].strip()
 
                     for table in tabelas:
                         modelo_atual = ""
                         for row in table:
-                            # Limpar a linha de valores nulos
+                            # Limpar a linha
                             row_clean = [str(x).strip() if x else "" for x in row]
                             row_str = " ".join(row_clean)
                             
-                            # 1. Detetar Modelo
+                            # Detetar Modelo (Ex: SORIN SNW - 1868)
                             if "SNW -" in row_str or "SNM -" in row_str:
                                 modelo_atual = row_clean[0].split('\n')[0]
                                 continue
                             
-                            # 2. Detetar Linha de Produção (Preço com €)
+                            # Detetar Linha de Produção (procura o €)
                             if "€" in row_str:
-                                # Preço: Procuramos o valor que tem o € colado ou perto
+                                # Preço Moeda
                                 p_moeda = 0
-                                for celula in row_clean:
-                                    if "€" in celula:
-                                        p_txt = celula.replace('€','').replace(',','.').strip()
+                                for cel in row_clean:
+                                    if "€" in cel:
+                                        p_txt = cel.replace('€','').replace(',','.').strip()
                                         p_moeda = pd.to_numeric(p_txt, errors='coerce')
                                         break
                                 
-                                # Cor: Costuma ser o primeiro texto longo após o modelo
-                                cor = row_clean[1] if len(row_clean) > 1 else ""
+                                # Cor (Geralmente a 2ª ou 3ª coluna com texto)
+                                cor = ""
+                                for cel in row_clean[1:5]:
+                                    if len(cel) > 3 and not cel.replace('.','').isdigit():
+                                        cor = cel
+                                        break
                                 
-                                # Tamanhos: UK4(Col 10), UK6(11), UK8(12), UK10(13), UK12(14), UK14(15)
+                                # Capturar Quantidades (Procurar todos os números isolados na linha)
                                 nomes_tams = ["UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                                # No pdfplumber as colunas de tamanhos costumam começar no índice 10
-                                start_col = 10 
+                                qts_encontradas = []
                                 
-                                for i_tam, nome_tam in enumerate(nomes_tams):
-                                    col_idx = start_col + i_tam
-                                    if col_idx < len(row_clean):
-                                        qtd = pd.to_numeric(row_clean[col_idx], errors='coerce')
-                                        if qtd and qtd > 0:
-                                            lista_dados.append({
-                                                'Referência': modelo_atual, 'Designação': "", 'Quant.': qtd, 
-                                                'Pr.Unit.': 0, 'Pr.Unit.Moeda': p_moeda, 'Tabela de IVA': 4, 
-                                                'Cor': cor, 'Tamanho': nome_tam, 
-                                                'TOTAL': qtd * (p_moeda if p_moeda else 0), 
-                                                'Destino': destino, 'Aba': "Nicholson_PO"
-                                            })
+                                # Vamos filtrar apenas colunas que pareçam quantidades (números inteiros pequenos)
+                                for cel in row_clean:
+                                    if cel.isdigit() and 0 < int(cel) < 500:
+                                        qts_encontradas.append(int(cel))
+                                
+                                # Se encontrarmos quantidades, mapeamos aos tamanhos por ordem
+                                for i_q, valor_q in enumerate(qts_encontradas):
+                                    if i_q < len(nomes_tams):
+                                        lista_dados.append({
+                                            'Referência': modelo_atual, 'Designação': "", 'Quant.': valor_q, 
+                                            'Pr.Unit.': 0, 'Pr.Unit.Moeda': p_moeda, 'Tabela de IVA': 4, 
+                                            'Cor': cor, 'Tamanho': nomes_tams[i_q], 
+                                            'TOTAL': valor_q * (p_moeda if p_moeda else 0), 
+                                            'Destino': destino, 'Aba': "Nicholson_PO"
+                                        })
 
-        # --- EXPORTAÇÃO ---
+        # --- GERAÇÃO DO FICHEIRO ---
         df_final = pd.DataFrame(lista_dados)
         if not df_final.empty:
             df_final['CPO'] = ""
@@ -105,12 +111,11 @@ if arquivo:
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 for aba_nom in df_final['Aba'].unique():
-                    nome_s = str(aba_nom)[:31].replace('/', '-')
-                    df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=nome_s, index=False)
-            st.success(f"✅ Sucesso! Geradas {len(df_final)} linhas.")
+                    df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
+            st.success(f"✅ Sucesso! Encontradas {len(df_final)} linhas de dados.")
             st.download_button("⬇️ Descarregar Excel", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
-            st.warning("Dados não encontrados. Verifique se selecionou o cliente correto para este ficheiro.")
+            st.warning("Dados não encontrados. Verifique se o PDF contém a tabela de produção visível.")
 
     except Exception as e:
         st.error(f"Erro: {e}")
