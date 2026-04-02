@@ -4,18 +4,23 @@ import io
 import pdfplumber
 import re
 
-# VERSÃO ATUALIZADA: 15:40 - Limpeza de Cache Forçada
-st.set_page_config(page_title="ROVO - Conversor Universal", page_icon="🚀")
-st.title("🚀 ROVO Universal Converter")
+# FORÇAR REINÍCIO DO SERVIDOR - 15:55
+st.set_page_config(page_title="ROVO - CONVERSOR V3", layout="wide")
 
-cliente = st.sidebar.selectbox("Selecione o Cliente", ["Stussy", "Supreme", "Studio Nicholson"])
-st.sidebar.write("---")
-st.sidebar.success("✅ CÓDIGO NOVO CARREGADO (15:40)")
+# Mudar a cor para sabermos que o código atualizou
+st.markdown("""
+    <style>
+    .stApp { background-color: #f0f2f6; }
+    </style>
+    """, unsafe_allow_html=True)
 
-st.info(f"Modo Ativo: **{cliente}**")
+st.sidebar.title("MENU ROVO")
+cliente = st.sidebar.selectbox("Cliente", ["Stussy", "Supreme", "Studio Nicholson"])
+st.sidebar.success("🚀 VERSÃO V3 ATIVA (15:55)")
 
-formatos = ["xlsx", "pdf"] if cliente == "Studio Nicholson" else ["xlsx"]
-arquivo = st.file_uploader(f"Carregar ficheiro", type=formatos)
+st.title(f"📦 Conversor: {cliente}")
+
+arquivo = st.file_uploader("Submeter ficheiro", type=["xlsx", "pdf"])
 
 if arquivo:
     try:
@@ -23,13 +28,14 @@ if arquivo:
 
         # --- LÓGICA EXCEL (STUSSY / SUPREME) ---
         if arquivo.name.endswith('.xlsx'):
-            xl = pd.ExcelFile(arquivo, engine='openpyxl')
+            xl = pd.ExcelFile(arquivo)
             if cliente == "Stussy":
                 df = xl.parse(xl.sheet_names[0], header=None)
                 for i, row in df.iloc[1:].iterrows():
                     q, p = pd.to_numeric(row[12], errors='coerce'), pd.to_numeric(row[17], errors='coerce')
                     if q and q > 0:
-                        lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': row[6], 'Tamanho': row[9], 'TOTAL': q*(p if p else 0), 'Destino': row[4], 'Aba': "Stussy_PO"})
+                        lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': row[6], 'Tamanho': row[9], 'TOTAL': q*(p if p else 0), 'Destino': row[4], 'Aba': "Stussy"})
+
             elif cliente == "Supreme":
                 for aba in xl.sheet_names:
                     if "TOTAL" in aba.upper(): continue
@@ -45,93 +51,67 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON ---
+        # --- LÓGICA NICHOLSON (CORREÇÃO DE COLUNAS E COR) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                lixo_cores = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "VEST", "HENLEY", "SCOOP", "NECK", "TOTAL", "QTY", "OTY", "LAY", "PRODUCTION", "ORDER"]
+                proibidos = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "SNW", "SNM", "LAY"]
 
                 for page in pdf.pages:
-                    texto_pg = page.extract_text() or ""
-                    tabelas = page.extract_tables()
-                    
-                    destino = "Ver PDF"
-                    ship_match = re.search(r"Ship To:\s*(.*)", texto_pg, re.IGNORECASE)
-                    if ship_match:
-                        destino = ship_match.group(1).split('\n')[0].strip()
+                    texto = page.extract_text() or ""
+                    tab = page.extract_tables()
+                    dest = "Ver PDF"
+                    ship = re.search(r"Ship To:\s*(.*)", texto, re.IGNORECASE)
+                    if ship: dest = ship.group(1).split('\n')[0].strip()
 
-                    for table in tabelas:
-                        headers = []
-                        start_data = -1
-                        for r_idx, row in enumerate(table):
-                            row_str = " ".join([str(x).upper() for x in row if x])
-                            if any(t in row_str for t in tams_ref):
-                                headers = [str(x).replace('\n', ' ').strip() for x in row]
-                                start_data = r_idx + 1
+                    for table in tab:
+                        h = []
+                        s_idx = -1
+                        for r_idx, r in enumerate(table):
+                            r_str = " ".join([str(x).upper() for x in r if x])
+                            if any(t in r_str for t in tams_ref):
+                                h = [str(x).replace('\n', ' ').strip() for x in r]
+                                s_idx = r_idx + 1
                                 break
-                        
-                        if start_data == -1: continue
+                        if s_idx == -1: continue
 
-                        for i in range(start_data, len(table)):
-                            row_data = table[i]
-                            row_str_full = " ".join([str(x) for x in row_data if x]).replace('\n', ' ')
-                            
-                            if "€" in row_str_full:
-                                designacao = str(row_data[0]).split('\n')[0].strip()
+                        for i in range(s_idx, len(table)):
+                            row = table[i]
+                            r_full = " ".join([str(x) for x in row if x]).replace('\n', ' ')
+                            if "€" in r_full:
+                                mod = str(row[0]).split('\n')[0].strip()
+                                # Filtro de Cor
+                                pts = r_full.split()
+                                c_limpa = [p for p in pts if p.upper() not in proibidos and not p.replace('.','').isdigit() and "€" not in p and "SN" not in p.upper() and len(p)>2]
+                                cor = " ".join(c_limpa).strip()
                                 
-                                partes = row_str_full.split()
-                                cor_candidata = []
-                                for p in partes:
-                                    p_up = p.upper().replace(',', '').replace('.', '')
-                                    if (p_up not in lixo_cores and not p_up.isdigit() and "€" not in p_up and "SN" not in p_up and len(p_up) > 2):
-                                        cor_candidata.append(p)
-                                
-                                cor_resultado = " ".join(cor_candidata).strip()
-                                
-                                p_valor = 0
-                                for cell in row_data:
-                                    if "€" in str(cell):
-                                        p_txt = str(cell).replace('€','').replace(',','.').replace(' ', '').strip()
-                                        p_valor = pd.to_numeric(p_txt, errors='coerce')
+                                p_v = 0
+                                for c in row:
+                                    if "€" in str(c):
+                                        p_v = pd.to_numeric(str(c).replace('€','').replace(',','.').replace(' ',''), errors='coerce')
                                         break
 
-                                for col_idx, h_text in enumerate(headers):
-                                    tam_final = ""
+                                for c_idx, head in enumerate(h):
+                                    t_ok = ""
                                     for t in tams_ref:
-                                        if t in h_text.upper():
-                                            tam_final = h_text
-                                            break
-                                    
-                                    if tam_final:
-                                        qtd = pd.to_numeric(row_data[col_idx], errors='coerce')
+                                        if t in head.upper(): t_ok = head; break
+                                    if t_ok:
+                                        qtd = pd.to_numeric(row[col_idx], errors='coerce') if 'col_idx' in locals() else pd.to_numeric(row[c_idx], errors='coerce')
                                         if qtd and qtd > 0:
                                             lista_dados.append({
-                                                'Referência': "", 
-                                                'Designação': designacao, 
-                                                'Quant.': qtd, 
-                                                'Pr.Unit.': p_valor, 
-                                                'Pr.Unit.Moeda': 0, 
-                                                'Tabela de IVA': 4, 
-                                                'Cor': cor_resultado, 
-                                                'Tamanho': tam_final, 
-                                                'TOTAL': qtd * p_valor, 
-                                                'Destino': destino, 
-                                                'Aba': "Nicholson_PO"
+                                                'Referência': "", 'Designação': mod, 'Quant.': qtd,
+                                                'Pr.Unit.': p_v, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
+                                                'Cor': cor, 'Tamanho': t_ok, 'TOTAL': qtd*p_v, 'Destino': dest, 'Aba': "Nicholson"
                                             })
 
-        df_final = pd.DataFrame(lista_dados)
-        if not df_final.empty:
-            df_final['CPO'] = ""
+        if lista_dados:
+            df = pd.DataFrame(lista_dados)
+            df['CPO'] = ""
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                for aba_nom in df_final['Aba'].unique():
-                    df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
-            
-            st.success("✅ Conversão Concluída!")
-            st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
-        else:
-            st.warning("Dados não detetados.")
-
+                df[cols].to_excel(writer, index=False, sheet_name="PHC")
+            st.success("✅ Convertido!")
+            st.download_button("⬇️ Download Excel", out.getvalue(), "IMPORTAR.xlsx")
     except Exception as e:
         st.error(f"Erro: {e}")
