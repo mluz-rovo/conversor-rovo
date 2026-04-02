@@ -2,8 +2,8 @@ import streamlit as st
 import pandas as pd
 import io
 
-st.set_page_config(page_title="ROVO - Conversor Multi-Cliente", page_icon="📦")
-st.title("📦 Conversor de Encomendas ROVO")
+st.set_page_config(page_title="ROVO PO Converter", page_icon="📦")
+st.title("📦 ROVO PO Converter")
 
 cliente = st.sidebar.selectbox("Selecione o Cliente", ["Stussy", "Supreme"])
 st.info(f"A processar formato para: **{cliente}**")
@@ -90,8 +90,8 @@ if arquivo:
                         nome_s = str(dest)[:31].replace('/', '-')
                         df_dest_res.to_excel(writer, sheet_name=nome_s, index=False)
             
-            st.success(f"✅ Processado! Preços em 'Pr.Unit.Moeda' e 'Pr.Unit.' a zero.")
-            st.download_button(label="⬇️ Descarregar para PHC", data=output.getvalue(), 
+            st.success(f"✅ Processado! ")
+            st.download_button(label="⬇️ Descarregar ", data=output.getvalue(), 
                                file_name=f"IMPORTAR_{cliente}.xlsx", mime="application/vnd.ms-excel")
     except Exception as e:
         st.error(f"Erro: {e}")
