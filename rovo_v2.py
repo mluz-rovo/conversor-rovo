@@ -39,87 +39,39 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA STUDIO NICHOLSON (MIRA LASER) ---
+        # --- LÓGICA STUDIO NICHOLSON (V12 - ESTABILIZADA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST"]
+                lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST", "MAKE", "SAMPLE"]
 
                 for page in pdf.pages:
+                    palavras = page.extract_words()
                     texto = page.extract_text()
                     if not texto: continue
                     linhas = texto.split('\n')
-                    palavras_pdf = page.extract_words()
                     
                     destino = "Ver PDF"
-                    for i, l in enumerate(linhas):
-                        if "Ship To:" in l and i+1 < len(linhas):
-                            destino = linhas[i+1].strip()
-                            break
+                    ship_match = re.search(r"Ship To:\s*(.*)", texto, re.IGNORECASE)
+                    if ship_match:
+                        destino = ship_match.group(1).split('\n')[0].strip()
 
-                    # 1. Identificar Posições com Centro Exato
-                    mapa = []
-                    x_max = 0
-                    for p in palavras_pdf:
-                        t_up = p['text'].upper().strip()
-                        if any(t == t_up or (t in t_up and "/" in t_up) for t in tams_ref):
-                            mapa.append({
-                                'tam': t_up, 
-                                'centro': (p['x0'] + p['x1']) / 2,
-                                'x1': p['x1']
-                            })
-                            if p['x1'] > x_max: x_max = p['x1']
+                    # 1. Mapear Cabeçalhos e Limite Direito
+                    mapa_tams = []
+                    x_limite = 0
+                    for p in palavras:
+                        txt_up = p['text'].upper().strip()
+                        if any(t == txt_up or (t in txt_up and "/" in txt_up) for t in tams_ref):
+                            mapa_tams.append({'tam': txt_up, 'centro_x': (p['x0'] + p['x1']) / 2})
+                            if p['x1'] > x_limite: x_limite = p['x1']
 
-                    modelo = ""
-                    for linha in linhas:
+                    modelo_atual = ""
+                    for i, linha in enumerate(linhas):
                         l_up = linha.upper()
-                        if any(x in l_up for x in ["TOTAL", "FIRST", "MAKE"]): continue
+                        
+                        # Saltar lixo
+                        if any(x in l_up for x in ["TOTAL QTY", "FIRST/MAKE", "FIRST MAKE", "SUB-TOTAL"]): continue
 
+                        # Capturar Modelo
                         if any(x in l_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
-                            modelo = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
-                            continue
-
-                        if "€" in linha:
-                            pts = linha.split()
-                            precos = re.findall(r"(\d+[\.,]\d{2})", linha)
-                            p_val = float(precos[0].replace(',', '')) if precos else 0
-                            
-                            cor = ""
-                            for pt in pts:
-                                pt_u = pt.upper().replace(',','').replace('.','')
-                                if pt_u not in lixo_geral and not pt_u.isdigit() and "€" not in pt_u and len(pt_u) > 2:
-                                    cor = pt
-                                    break
-                            
-                            if not cor: continue
-
-                            # 2. Busca com Mira Laser (Margem de 8 pixels)
-                            for m in mapa:
-                                for p_doc in palavras_pdf:
-                                    # Calcula o centro do número encontrado
-                                    centro_num = (p_doc['x0'] + p_doc['x1']) / 2
-                                    # Só aceita se o centro do número estiver quase perfeito com o centro do tamanho
-                                    if abs(centro_num - m['centro']) < 8 and p_doc['text'].isdigit() and p_doc['text'] in pts:
-                                        if p_doc['x1'] <= (x_max + 5): # Corta o total da direita
-                                            q_num = int(p_doc['text'])
-                                            if q_num > 0 and p_doc['top'] > 120:
-                                                lista_dados.append({
-                                                    'Referência': "", 'Designação': modelo, 'Quant.': q_num,
-                                                    'Pr.Unit.': p_val, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
-                                                    'Cor': cor, 'Tamanho': m['tam'], 'TOTAL': q_num * p_val, 
-                                                    'Destino': destino, 'CPO': ""
-                                                })
-
-        if lista_dados:
-            df = pd.DataFrame(lista_dados).drop_duplicates()
-            # Limpeza final de segurança
-            df = df[~df['Tamanho'].str.contains("FIRST|MAKE|TOTAL|QTY", case=False, na=False)]
-            
-            cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
-            out = io.BytesIO()
-            with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Mira Laser Ativada! Repetições e Totais eliminados.")
-            st.download_button("⬇️ Download Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
-    except Exception as e:
-        st.error(f"Erro: {e}")
+                            modelo_atual = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip
