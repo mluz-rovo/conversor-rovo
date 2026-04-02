@@ -39,55 +39,50 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (MAPEAMENTO POR COORDENADAS) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (FILTRO DE TOTAIS ATIVO) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                lixo_cor = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL"]
+                lixo_cor = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST"]
 
                 for page in pdf.pages:
-                    # Extraímos as palavras com coordenadas (x0, x1)
                     palavras = page.extract_words()
-                    linhas_texto = page.extract_text().split('\n')
+                    texto_completo = page.extract_text()
+                    linhas_texto = texto_completo.split('\n')
                     
                     destino_atual = "Ver PDF"
-                    ship_match = re.search(r"Ship To:\s*(.*)", page.extract_text(), re.IGNORECASE)
+                    ship_match = re.search(r"Ship To:\s*(.*)", texto_completo, re.IGNORECASE)
                     if ship_match:
                         destino_atual = ship_match.group(1).split('\n')[0].strip()
 
-                    mapa_posicoes = [] # Lista de dicionários {tamanho: str, x_centro: float}
-
-                    # 1. Primeiro passamos para identificar os cabeçalhos de tamanhos e suas posições
+                    mapa_posicoes = []
                     for p in palavras:
                         txt = p['text'].upper().strip()
-                        # Detetar tamanhos (incluindo os com barra UK4/IT36)
                         if any(t == txt or (t in txt and "/" in txt) for t in tams_ref):
-                            mapa_posicoes.append({
-                                'tamanho': txt,
-                                'x0': p['x0'],
-                                'x1': p['x1'],
-                                'centro': (p['x0'] + p['x1']) / 2
-                            })
+                            mapa_posicoes.append({'tamanho': txt, 'x0': p['x0'], 'x1': p['x1']})
 
-                    # 2. Processar linha a linha para extrair Modelo, Cor e Quantidades
                     modelo_atual = ""
                     for linha in linhas_texto:
                         linha_up = linha.upper()
                         
-                        # Identificar Modelo
+                        # Bloqueio de Linhas de Total
+                        if "TOTAL QTY" in linha_up or "TOTAL COST" in linha_up:
+                            continue
+
                         if any(x in linha_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
                             modelo_atual = re.sub(r"\b(QTY|COST|TOTAL|FIRSTMAKE)\b", "", linha, flags=re.I).strip()
                             continue
 
-                        # Identificar Linha de Dados (Preço e Qtds)
                         if "€" in linha:
                             partes_linha = linha.split()
                             
-                            # Preço Unitário
+                            # Ignorar se a primeira palavra for "Total"
+                            if partes_linha[0].upper() == "TOTAL":
+                                continue
+
                             precos = re.findall(r"(\d+[\.,]\d{2})", linha)
                             p_unit = float(precos[0].replace(',', '')) if precos else 0
                             
-                            # Cor
                             cor_candidata = ""
                             for pt in partes_linha:
                                 pt_up = pt.upper().replace(',', '').replace('.', '')
@@ -95,36 +90,28 @@ if arquivo:
                                     cor_candidata = pt
                                     break
 
-                            # Extrair palavras da linha atual com coordenadas para bater com o cabeçalho
-                            palavras_linha = [pw for pw in palavras if pw['top'] > 0 and abs(pw['top'] - page.extract_text_lines()[0]['top']) < 500] # Simplificação de busca
-                            # Versão robusta: re-extraímos as palavras desta linha específica
-                            
-                            # Para cada tamanho mapeado no cabeçalho, procuramos um número abaixo dele
+                            # Procurar quantidades por coordenada X
                             for m in mapa_posicoes:
-                                # Procuramos na linha de texto atual por números que estejam "perto" da coordenada X do tamanho
-                                # Vamos usar uma margem de erro de 15 pixels
                                 for p_doc in palavras:
-                                    # Se a palavra está na mesma altura (Y) que a linha do € e na mesma largura (X) que o cabeçalho
-                                    if abs(p_doc['x0'] - m['x0']) < 20 and p_doc['text'].isdigit():
+                                    # Verifica se o número está na mesma vertical que o tamanho e se pertence a esta linha de texto
+                                    if abs(p_doc['x0'] - m['x0']) < 25 and p_doc['text'].isdigit() and p_doc['text'] in partes_linha:
+                                        # Garantir que não é um número de página ou data (filtrando pela altura Y aproximada)
                                         q_num = int(p_doc['text'])
-                                        if q_num > 0 and p_doc['top'] > 100: # Evita apanhar números do topo da página
-                                            # Verificar se este número pertence à linha atual (pelo texto)
-                                            if p_doc['text'] in partes_linha:
-                                                lista_dados.append({
-                                                    'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
-                                                    'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
-                                                    'Cor': cor_candidata, 'Tamanho': m['tamanho'],
-                                                    'TOTAL': q_num * p_unit, 'Destino': destino_atual, 'CPO': ""
-                                                })
+                                        if q_num > 0 and p_doc['top'] > 150:
+                                            lista_dados.append({
+                                                'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
+                                                'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
+                                                'Cor': cor_candidata, 'Tamanho': m['tamanho'],
+                                                'TOTAL': q_num * p_unit, 'Destino': destino_atual, 'CPO': ""
+                                            })
 
         if lista_dados:
-            # Remover duplicados que possam surgir da busca por coordenadas
             df = pd.DataFrame(lista_dados).drop_duplicates()
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Conversão por Coordenadas Concluída!")
+            st.success("✅ Conversão Concluída (Totais removidos)!")
             st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
     except Exception as e:
         st.error(f"Erro: {e}")
