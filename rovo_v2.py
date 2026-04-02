@@ -1,15 +1,13 @@
-import streamlit as st
+ import streamlit as st
 import pandas as pd
 import io
 import pdfplumber
 import re
 
-# Configuração da página (Voltamos ao visual padrão, sem o verde)
 st.set_page_config(page_title="ROVO - Conversor Universal", page_icon="🚀", layout="wide")
 
 st.sidebar.title("🚀 MENU ROVO")
 cliente = st.sidebar.selectbox("Selecione o Cliente", ["Studio Nicholson", "Stussy", "Supreme"])
-
 st.title(f"📦 Conversor: {cliente}")
 
 arquivo = st.file_uploader("Submeter ficheiro", type=["xlsx", "pdf"])
@@ -21,7 +19,6 @@ if arquivo:
         # --- LÓGICA EXCEL (STUSSY / SUPREME) ---
         if arquivo.name.endswith('.xlsx'):
             xl = pd.ExcelFile(arquivo)
-            # (Mantemos a lógica que já funcionava para Stussy e Supreme)
             if cliente == "Stussy":
                 df = xl.parse(xl.sheet_names[0], header=None)
                 for i, row in df.iloc[1:].iterrows():
@@ -43,89 +40,84 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (FINAL E CORRIGIDA) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (ROBUSTA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                proibidos = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "SNW", "SNM", "LAY", "QTY", "OTY", "TOTAL"]
+                palavras_lixo = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "OTY", "TOTAL", "COST", "FIRSTMAKE"]
 
                 for page in pdf.pages:
-                    texto_pg = page.extract_text() or ""
-                    tabelas = page.extract_tables()
+                    linhas = page.extract_text().split('\n')
+                    modelo_atual = ""
+                    destino = "Ver PDF"
                     
-                    ship = re.search(r"Ship To:\s*(.*)", texto_pg, re.IGNORECASE)
-                    destino = ship.group(1).split('\n')[0].strip() if ship else "Ver PDF"
-
-                    for table in tabelas:
-                        headers = []
-                        start_data = -1
-                        for r_idx, row in enumerate(table):
-                            row_str = " ".join([str(x).upper() for x in row if x])
-                            if any(t in row_str for t in tams_ref):
-                                headers = [str(x).replace('\n', ' ').strip() for x in row]
-                                start_data = r_idx + 1
-                                break
+                    for idx, linha in enumerate(linhas):
+                        linha_up = linha.upper()
                         
-                        if start_data == -1: continue
+                        # 1. Encontrar Destino
+                        if "SHIP TO:" in linha_up:
+                            destino = linhas[idx+1].strip() if idx+1 < len(linhas) else "Ver PDF"
+                        
+                        # 2. Encontrar Modelo (Designação)
+                        if any(x in linha_up for x in ["SNW-", "SNM-", "LAY "]):
+                            modelo_atual = linha.strip()
+                            continue
 
-                        for i in range(start_data, len(table)):
-                            row_data = table[i]
-                            row_str_full = " ".join([str(x) for x in row_data if x]).replace('\n', ' ')
+                        # 3. Encontrar Linha de Dados (Preço e Quantidades)
+                        if "€" in linha:
+                            partes = linha.split()
                             
-                            if "€" in row_str_full:
-                                # Designação recebe o Modelo (Coluna 1 da tabela)
-                                modelo = str(row_data[0]).split('\n')[0].strip()
-                                
-                                # Limpeza de Cor (Ignora JERSEY e derivados)
-                                partes = row_str_full.split()
-                                cor_limpa = [p for p in partes if p.upper() not in proibidos and not p.replace('.','').isdigit() and "€" not in p and "SN" not in p.upper() and len(p)>2]
-                                cor_final = " ".join(cor_limpa).strip()
-                                
-                                # Preço para Pr.Unit.
-                                p_unit = 0
-                                for cell in row_data:
-                                    if "€" in str(cell):
-                                        p_txt = str(cell).replace('€','').replace(',','.').replace(' ', '').strip()
-                                        p_unit = pd.to_numeric(p_txt, errors='coerce')
-                                        break
+                            # Extrair Preço Unitário
+                            precos = [p for p in partes if "€" in p or p.replace(',','').replace('.','').isdigit()]
+                            p_unit = 0
+                            for p in partes:
+                                if "€" in p:
+                                    idx_p = partes.index(p)
+                                    val_txt = partes[idx_p+1] if idx_p+1 < len(partes) else p
+                                    p_unit = pd.to_numeric(val_txt.replace('€','').replace(',',''), errors='coerce')
+                                    break
+                            
+                            # Extrair Cor (Primeiras palavras da linha que não sejam lixo ou números)
+                            cor_partes = []
+                            for p in partes:
+                                p_clean = p.upper().replace(',','')
+                                if p_clean not in palavras_lixo and not p_clean.replace('.','').isdigit() and "€" not in p_clean and len(p_clean) > 2:
+                                    cor_partes.append(p)
+                            cor_final = " ".join(cor_partes[:2]) # Pega as duas primeiras palavras da cor
+                            
+                            # Extrair Quantidades
+                            numeros = [n for n in partes if n.replace('.','').isdigit() and "€" not in n]
+                            # Geralmente o último número é o total da linha, removemos
+                            qts = numeros[:-1] if len(numeros) > 1 else numeros
 
-                                for col_idx, h_text in enumerate(headers):
-                                    tam_ok = ""
-                                    for t in tams_ref:
-                                        if t in h_text.upper():
-                                            tam_ok = h_text
-                                            break
-                                    
-                                    if tam_ok:
-                                        qtd = pd.to_numeric(row_data[col_idx], errors='coerce')
-                                        if qtd and qtd > 0:
-                                            lista_dados.append({
-                                                'Referência': "", 
-                                                'Designação': modelo, 
-                                                'Quant.': qtd, 
-                                                'Pr.Unit.': p_unit, 
-                                                'Pr.Unit.Moeda': 0, 
-                                                'Tabela de IVA': 4, 
-                                                'Cor': cor_final, 
-                                                'Tamanho': tam_ok, 
-                                                'TOTAL': qtd * p_unit, 
-                                                'Destino': destino, 
-                                                'CPO': ""
-                                            })
+                            for i_q, val_q in enumerate(qts):
+                                if i_q < len(tams_ref):
+                                    q_num = pd.to_numeric(val_q, errors='coerce')
+                                    if q_num and q_num > 0:
+                                        lista_dados.append({
+                                            'Referência': "", 
+                                            'Designação': modelo_atual, 
+                                            'Quant.': q_num, 
+                                            'Pr.Unit.': p_unit, 
+                                            'Pr.Unit.Moeda': 0, 
+                                            'Tabela de IVA': 4, 
+                                            'Cor': cor_final, 
+                                            'Tamanho': tams_ref[i_q], 
+                                            'TOTAL': q_num * p_unit, 
+                                            'Destino': destino, 
+                                            'CPO': ""
+                                        })
 
-        # --- EXPORTAÇÃO ---
         if lista_dados:
             df_final = pd.DataFrame(lista_dados)
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
-            
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                df_final[cols].to_excel(writer, index=False, sheet_name="Importar PHC")
-            
-            st.success(f"✅ Conversão de {cliente} concluída!")
-            st.download_button("⬇️ Descarregar Excel para PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
+                df_final[cols].to_excel(writer, index=False, sheet_name="PHC")
+            st.success("✅ Conversão concluída!")
+            st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR.xlsx")
         else:
-            st.warning("Nenhum dado encontrado no ficheiro.")
+            st.warning("Não foram encontrados dados. Verifique se o Cliente selecionado corresponde ao ficheiro.")
 
     except Exception as e:
-        st.error(f"Erro no processamento: {e}")
+        st.error(f"Erro: {e}")
