@@ -39,7 +39,7 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA STUDIO NICHOLSON (FILTRO DE TOTAIS E FIRST/MAKE) ---
+        # --- LÓGICA STUDIO NICHOLSON (MIRA LASER) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
@@ -57,18 +57,22 @@ if arquivo:
                             destino = linhas[i+1].strip()
                             break
 
+                    # 1. Identificar Posições com Centro Exato
                     mapa = []
                     x_max = 0
                     for p in palavras_pdf:
                         t_up = p['text'].upper().strip()
                         if any(t == t_up or (t in t_up and "/" in t_up) for t in tams_ref):
-                            mapa.append({'tam': t_up, 'x0': p['x0'], 'x1': p['x1']})
+                            mapa.append({
+                                'tam': t_up, 
+                                'centro': (p['x0'] + p['x1']) / 2,
+                                'x1': p['x1']
+                            })
                             if p['x1'] > x_max: x_max = p['x1']
 
                     modelo = ""
                     for linha in linhas:
                         l_up = linha.upper()
-                        # Se a linha diz TOTAL ou FIRST/MAKE, saltar logo
                         if any(x in l_up for x in ["TOTAL", "FIRST", "MAKE"]): continue
 
                         if any(x in l_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
@@ -89,11 +93,14 @@ if arquivo:
                             
                             if not cor: continue
 
+                            # 2. Busca com Mira Laser (Margem de 8 pixels)
                             for m in mapa:
                                 for p_doc in palavras_pdf:
-                                    # Alinhamento vertical e limite horizontal (ignora o "35" que é total)
-                                    if abs(p_doc['x0'] - m['x0']) < 20 and p_doc['text'].isdigit() and p_doc['text'] in pts:
-                                        if p_doc['x1'] <= (x_max + 10): 
+                                    # Calcula o centro do número encontrado
+                                    centro_num = (p_doc['x0'] + p_doc['x1']) / 2
+                                    # Só aceita se o centro do número estiver quase perfeito com o centro do tamanho
+                                    if abs(centro_num - m['centro']) < 8 and p_doc['text'].isdigit() and p_doc['text'] in pts:
+                                        if p_doc['x1'] <= (x_max + 5): # Corta o total da direita
                                             q_num = int(p_doc['text'])
                                             if q_num > 0 and p_doc['top'] > 120:
                                                 lista_dados.append({
@@ -105,20 +112,14 @@ if arquivo:
 
         if lista_dados:
             df = pd.DataFrame(lista_dados).drop_duplicates()
-            
-            # --- FILTRO FINAL DE SEGURANÇA ---
-            # Remove qualquer linha onde o tamanho contenha "FIRST" ou "MAKE" ou "TOTAL"
-            # (Caso o código tenha deixado passar algo por engano)
+            # Limpeza final de segurança
             df = df[~df['Tamanho'].str.contains("FIRST|MAKE|TOTAL|QTY", case=False, na=False)]
-            # --------------------------------
             
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Conversão Concluída! Linhas 'FIRST/MAKE' eliminadas.")
-            st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
-        else:
-            st.warning("Dados não detetados.")
+            st.success("✅ Mira Laser Ativada! Repetições e Totais eliminados.")
+            st.download_button("⬇️ Download Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
     except Exception as e:
         st.error(f"Erro: {e}")
