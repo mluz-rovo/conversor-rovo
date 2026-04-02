@@ -5,7 +5,6 @@ import pdfplumber
 import re
 
 st.set_page_config(page_title="ROVO - Conversor Universal", page_icon="🚀", layout="wide")
-
 st.sidebar.title("🚀 MENU ROVO")
 cliente = st.sidebar.selectbox("Selecione o Cliente", ["Studio Nicholson", "Stussy", "Supreme"])
 st.title(f"📦 Conversor: {cliente}")
@@ -15,8 +14,7 @@ arquivo = st.file_uploader("Submeter ficheiro", type=["xlsx", "pdf"])
 if arquivo:
     try:
         lista_dados = []
-
-        # --- LÓGICA EXCEL (STUSSY / SUPREME) ---
+        # --- MANTEMOS A LÓGICA EXCEL PARA STUSSY/SUPREME ---
         if arquivo.name.endswith('.xlsx'):
             xl = pd.ExcelFile(arquivo)
             if cliente == "Stussy":
@@ -40,44 +38,50 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (HÍBRIDA) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (GRELHA DUPLA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
-                tams_ref = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
+                # Definição das duas grelhas possíveis
+                grelha_letras = ["XXS", "XS", "S", "M", "L", "XL", "XXL"]
+                grelha_numeros = ["UK4 / IT36", "UK6 / IT38", "UK8 / IT40", "UK10 / IT42", "UK12 / IT44", "UK14 / IT46"]
+                
+                # Palavras a ignorar na cor (REMOVIDO 'BLACK' E 'PANNA' DAQUI)
                 lixo = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "OTY", "TOTAL", "COST", "SNW", "SNM", "LAY"]
 
                 for page in pdf.pages:
-                    texto_completo = page.extract_text()
-                    if not texto_completo: continue
-                    linhas = texto_completo.split('\n')
+                    texto = page.extract_text()
+                    if not texto: continue
+                    linhas = texto.split('\n')
                     
                     modelo_atual = ""
                     destino = "Ver PDF"
-                    
-                    # Tentar capturar destino no topo
-                    ship_match = re.search(r"Ship To:\s*(.*)", texto_completo, re.IGNORECASE)
-                    if ship_match: destino = ship_match.group(1).split('\n')[0].strip()
+                    grelha_ativa = []
 
                     for idx, linha in enumerate(linhas):
                         linha_up = linha.upper()
                         
-                        # Capturar Modelo
-                        if any(x in linha_up for x in ["SNW-", "SNM-", "LAY "]):
+                        # 1. Detetar o Modelo (Designação)
+                        if any(x in linha_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
                             modelo_atual = linha.strip()
+                            # Verificar qual a grelha de tamanhos que vem logo a seguir
+                            next_l = linhas[idx+1].upper() if idx+1 < len(linhas) else ""
+                            if "UK4" in next_l or "IT36" in next_l:
+                                grelha_ativa = grelha_numeros
+                            else:
+                                grelha_ativa = grelha_letras
+                            continue
 
-                        # Detetar linha com Preço e Quantidades
+                        # 2. Detetar linha de dados (contém o símbolo €)
                         if "€" in linha:
                             partes = linha.split()
                             
-                            # 1. Extrair Preço Unitário (Pr.Unit.)
+                            # Extrair Preço Unitário
                             p_unit = 0
-                            # Procura o valor que segue o símbolo € ou que tem formato de preço
-                            precos_na_linha = re.findall(r"€?\s*(\d+[\.,]\d{2})", linha)
-                            if precos_na_linha:
-                                # O primeiro preço costuma ser o unitário
-                                p_unit = float(precos_na_linha[0].replace(',', ''))
+                            precos = re.findall(r"(\d+[\.,]\d{2})", linha)
+                            if precos:
+                                p_unit = float(precos[0].replace(',', ''))
 
-                            # 2. Extrair Cor (Primeira palavra que não seja lixo ou número)
+                            # Extrair Cor (Primeira palavra que não seja lixo ou número)
                             cor_final = "Ver PDF"
                             for p in partes:
                                 p_clean = p.upper().replace(',', '').replace('.', '')
@@ -85,30 +89,21 @@ if arquivo:
                                     cor_final = p
                                     break
                             
-                            # 3. Extrair Quantidades (Números inteiros soltos)
-                            # Filtramos apenas números que não fazem parte do preço
+                            # Extrair Quantidades (Números inteiros)
                             nums_qtd = [n for n in partes if n.isdigit() and len(n) < 4]
-                            
-                            # No formato Nicholson, as quantidades vêm em sequência. 
-                            # Se houver um total no fim, removemos.
+                            # Remove o total da linha (último número)
                             qts_reais = nums_qtd[:-1] if len(nums_qtd) > 1 else nums_qtd
 
+                            # Associar quantidades ao tamanho correto da grelha ativa
                             for i_q, val_q in enumerate(qts_reais):
-                                if i_q < len(tams_ref):
+                                if i_q < len(grelha_ativa):
                                     q_num = int(val_q)
                                     if q_num > 0:
                                         lista_dados.append({
-                                            'Referência': "", 
-                                            'Designação': modelo_atual, 
-                                            'Quant.': q_num, 
-                                            'Pr.Unit.': p_unit, 
-                                            'Pr.Unit.Moeda': 0, 
-                                            'Tabela de IVA': 4, 
-                                            'Cor': cor_final, 
-                                            'Tamanho': tams_ref[i_q], 
-                                            'TOTAL': q_num * p_unit, 
-                                            'Destino': destino, 
-                                            'CPO': ""
+                                            'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
+                                            'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
+                                            'Cor': cor_final, 'Tamanho': grelha_ativa[i_q],
+                                            'TOTAL': q_num * p_unit, 'Destino': destino, 'CPO': ""
                                         })
 
         if lista_dados:
@@ -116,11 +111,10 @@ if arquivo:
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                df_final[cols].to_excel(writer, index=False, sheet_name="Importar_PHC")
-            st.success("✅ Conversão efetuada com sucesso!")
+                df_final[cols].to_excel(writer, index=False, sheet_name="PHC")
+            st.success("✅ Ficheiro 100439 e outros convertidos!")
             st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_STUDIO.xlsx")
         else:
-            st.warning("Não foram detetados dados válidos para conversão.")
-
+            st.warning("Não foram encontrados dados. Verifique o ficheiro.")
     except Exception as e:
-        st.error(f"Ocorreu um erro: {e}")
+        st.error(f"Erro: {e}")
