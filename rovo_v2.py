@@ -39,83 +39,86 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA STUDIO NICHOLSON (MÉTODO DE TABELA RÍGIDA) ---
+        # --- LÓGICA STUDIO NICHOLSON (VERSÃO ROBUSTA E LIMPA) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
+                tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
+                lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST", "MAKE", "SAMPLE", "DOCKET"]
+
                 for page in pdf.pages:
                     texto = page.extract_text()
+                    if not texto: continue
                     linhas = texto.split('\n')
+                    palavras_pdf = page.extract_words()
                     
-                    # 1. Capturar Destino e Modelo
+                    # 1. Destino
                     destino = "Ver PDF"
-                    modelo = ""
                     for i, l in enumerate(linhas):
                         if "Ship To:" in l and i+1 < len(linhas):
                             destino = linhas[i+1].strip()
-                        if any(x in l.upper() for x in ["SNW -", "SNM -", "SN -", "LAY "]):
-                            modelo = re.split(r"Qty|Cost|Total|First", l, flags=re.I)[0].strip()
-
-                    # 2. Extrair tabelas de forma estruturada (Evita duplicar por coordenadas)
-                    table = page.extract_table({
-                        "vertical_strategy": "text", 
-                        "horizontal_strategy": "text",
-                        "snap_tolerance": 3,
-                    })
-                    
-                    if not table: continue
-                    
-                    # Identificar cabeçalho de tamanhos
-                    header = []
-                    for row in table:
-                        row_clean = [str(c).upper().strip() for c in row if c]
-                        if any(t in row_clean for t in ["XS", "S", "M", "L", "XL", "UK4", "UK6"]):
-                            header = [str(c).replace('\n', ' ').strip() for c in row]
                             break
-                    
-                    if not header: continue
 
-                    for row in table:
-                        row_str = " ".join([str(c) for c in row if c]).upper()
-                        # Ignorar linhas de Totais e First Make
-                        if "TOTAL" in row_str or "FIRST" in row_str or "€" not in row_str:
-                            continue
+                    # 2. Mapa de Tamanhos (Coordenadas X)
+                    mapa = []
+                    for p in palavras_pdf:
+                        t_up = p['text'].upper().strip()
+                        if any(t == t_up or (t in t_up and "/" in t_up) for t in tams_ref):
+                            mapa.append({'tam': t_up, 'x0': p['x0'], 'x1': p['x1']})
+
+                    # 3. Processamento das Linhas
+                    modelo_atual = ""
+                    for linha in linhas:
+                        l_up = linha.upper()
                         
-                        # Capturar Cor e Preço
-                        cor = "Ver PDF"
-                        preco = 0
-                        for cell in row:
-                            c_txt = str(cell).strip()
-                            if "€" in c_txt:
-                                p_match = re.findall(r"(\d+[\.,]\d{2})", c_txt)
-                                preco = float(p_match[0].replace(',', '')) if p_match else 0
-                            elif len(c_txt) > 2 and c_txt.isalpha() and c_txt not in ["QTY", "COST"]:
-                                cor = c_txt
+                        # Filtro Anti-Lixo (Ignorar linhas de totais ou amostras)
+                        if any(x in l_up for x in ["TOTAL", "FIRST", "MAKE", "SAMPLE", "DOCKET"]):
+                            continue
 
-                        # Capturar Quantidades mapeadas pelo cabeçalho
-                        for idx, cell in enumerate(row):
-                            if idx < len(header):
-                                tam_nome = header[idx].upper()
-                                if any(t == tam_nome or (t in tam_nome and "/" in tam_nome) for t in ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]):
-                                    val_q = str(cell).strip()
-                                    if val_q.isdigit():
-                                        q_num = int(val_q)
-                                        if q_num > 0:
-                                            lista_dados.append({
-                                                'Referência': "", 'Designação': modelo, 'Quant.': q_num,
-                                                'Pr.Unit.': preco, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
-                                                'Cor': cor, 'Tamanho': header[idx], 'TOTAL': q_num * preco, 
-                                                'Destino': destino, 'CPO': ""
-                                            })
+                        # Capturar Modelo
+                        if any(x in l_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
+                            modelo_atual = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
+                            continue
+
+                        if "€" in linha:
+                            pts = linha.split()
+                            precos = re.findall(r"(\d+[\.,]\d{2})", linha)
+                            p_val = float(precos[0].replace(',', '')) if precos else 0
+                            
+                            # Isolar a Cor
+                            cor_candidata = ""
+                            for pt in pts:
+                                pt_u = pt.upper().replace(',','').replace('.','')
+                                if pt_u not in lixo_geral and not pt_u.isdigit() and "€" not in pt_u and len(pt_u) > 2:
+                                    cor_candidata = pt
+                                    break
+                            
+                            if not cor_candidata: continue
+
+                            # Capturar Qtds por Coordenada
+                            for m in mapa:
+                                for p_doc in palavras_pdf:
+                                    # Se o número está na coluna do tamanho e pertence a esta linha (pelo texto)
+                                    if abs(p_doc['x0'] - m['x0']) < 20 and p_doc['text'].isdigit() and p_doc['text'] in pts:
+                                        # Filtro de segurança para evitar números de página ou cabeçalhos
+                                        if p_doc['top'] > 100:
+                                            q_num = int(p_doc['text'])
+                                            if q_num > 0:
+                                                lista_dados.append({
+                                                    'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
+                                                    'Pr.Unit.': p_val, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
+                                                    'Cor': cor_candidata, 'Tamanho': m['tam'], 'TOTAL': q_num * p_val, 
+                                                    'Destino': destino, 'CPO': ""
+                                                })
 
         if lista_dados:
-            df = pd.DataFrame(lista_dados)
-            # Remove duplicados exatos para garantir
-            df = df.drop_duplicates(subset=['Designação', 'Quant.', 'Cor', 'Tamanho', 'TOTAL'])
+            df = pd.DataFrame(lista_dados).drop_duplicates()
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Conversão Studio Nicholson afinada!")
+            st.success("✅ Conversão Concluída! Tudo verificado.")
             st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
+        else:
+            st.warning("Nenhum dado encontrado.")
     except Exception as e:
         st.error(f"Erro: {e}")
