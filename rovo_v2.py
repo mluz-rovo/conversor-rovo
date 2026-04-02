@@ -39,11 +39,11 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA STUDIO NICHOLSON (VERSÃO ROBUSTA E LIMPA) ---
+        # --- LÓGICA STUDIO NICHOLSON (LIMITADOR DE COLUNAS) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST", "MAKE", "SAMPLE", "DOCKET"]
+                lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST"]
 
                 for page in pdf.pages:
                     texto = page.extract_text()
@@ -51,26 +51,27 @@ if arquivo:
                     linhas = texto.split('\n')
                     palavras_pdf = page.extract_words()
                     
-                    # 1. Destino
                     destino = "Ver PDF"
                     for i, l in enumerate(linhas):
                         if "Ship To:" in l and i+1 < len(linhas):
                             destino = linhas[i+1].strip()
                             break
 
-                    # 2. Mapa de Tamanhos (Coordenadas X)
+                    # 1. Identificar Posições dos Tamanhos e calcular o LIMITE DIREITO
                     mapa = []
+                    x_limite_direito = 0
                     for p in palavras_pdf:
                         t_up = p['text'].upper().strip()
                         if any(t == t_up or (t in t_up and "/" in t_up) for t in tams_ref):
                             mapa.append({'tam': t_up, 'x0': p['x0'], 'x1': p['x1']})
+                            if p['x1'] > x_limite_direito:
+                                x_limite_direito = p['x1'] # O tamanho mais à direita define o limite
 
-                    # 3. Processamento das Linhas
                     modelo_atual = ""
                     for linha in linhas:
                         l_up = linha.upper()
                         
-                        # Filtro Anti-Lixo (Ignorar linhas de totais ou amostras)
+                        # Filtro de Totais e First Make
                         if any(x in l_up for x in ["TOTAL", "FIRST", "MAKE", "SAMPLE", "DOCKET"]):
                             continue
 
@@ -84,7 +85,7 @@ if arquivo:
                             precos = re.findall(r"(\d+[\.,]\d{2})", linha)
                             p_val = float(precos[0].replace(',', '')) if precos else 0
                             
-                            # Isolar a Cor
+                            # Cor
                             cor_candidata = ""
                             for pt in pts:
                                 pt_u = pt.upper().replace(',','').replace('.','')
@@ -94,15 +95,15 @@ if arquivo:
                             
                             if not cor_candidata: continue
 
-                            # Capturar Qtds por Coordenada
+                            # Capturar Quantidades (Com trava de segurança no limite X)
                             for m in mapa:
                                 for p_doc in palavras_pdf:
-                                    # Se o número está na coluna do tamanho e pertence a esta linha (pelo texto)
+                                    # Só aceita o número se estiver alinhado com o tamanho E à esquerda do limite
                                     if abs(p_doc['x0'] - m['x0']) < 20 and p_doc['text'].isdigit() and p_doc['text'] in pts:
-                                        # Filtro de segurança para evitar números de página ou cabeçalhos
-                                        if p_doc['top'] > 100:
+                                        # GARANTIA: O número tem de estar dentro da zona de tamanhos
+                                        if p_doc['x1'] <= (x_limite_direito + 15): 
                                             q_num = int(p_doc['text'])
-                                            if q_num > 0:
+                                            if q_num > 0 and p_doc['top'] > 120:
                                                 lista_dados.append({
                                                     'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
                                                     'Pr.Unit.': p_val, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
@@ -116,9 +117,7 @@ if arquivo:
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Conversão Concluída! Tudo verificado.")
+            st.success("✅ Conversão Concluída! Totais à direita ignorados com sucesso.")
             st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
-        else:
-            st.warning("Nenhum dado encontrado.")
     except Exception as e:
         st.error(f"Erro: {e}")
