@@ -39,75 +39,92 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (DINÂMICA) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON (MAPEAMENTO POR COORDENADAS) ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
                 lixo_cor = ["JERSEY", "MICRO", "RIB", "SHORT", "SCOOP", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL"]
 
                 for page in pdf.pages:
-                    texto = page.extract_text()
-                    if not texto: continue
-                    linhas = texto.split('\n')
+                    # Extraímos as palavras com coordenadas (x0, x1)
+                    palavras = page.extract_words()
+                    linhas_texto = page.extract_text().split('\n')
                     
-                    modelo_atual = ""
                     destino_atual = "Ver PDF"
-                    mapa_tams = {} 
+                    ship_match = re.search(r"Ship To:\s*(.*)", page.extract_text(), re.IGNORECASE)
+                    if ship_match:
+                        destino_atual = ship_match.group(1).split('\n')[0].strip()
 
-                    for i, linha in enumerate(linhas):
+                    mapa_posicoes = [] # Lista de dicionários {tamanho: str, x_centro: float}
+
+                    # 1. Primeiro passamos para identificar os cabeçalhos de tamanhos e suas posições
+                    for p in palavras:
+                        txt = p['text'].upper().strip()
+                        # Detetar tamanhos (incluindo os com barra UK4/IT36)
+                        if any(t == txt or (t in txt and "/" in txt) for t in tams_ref):
+                            mapa_posicoes.append({
+                                'tamanho': txt,
+                                'x0': p['x0'],
+                                'x1': p['x1'],
+                                'centro': (p['x0'] + p['x1']) / 2
+                            })
+
+                    # 2. Processar linha a linha para extrair Modelo, Cor e Quantidades
+                    modelo_atual = ""
+                    for linha in linhas_texto:
                         linha_up = linha.upper()
                         
-                        if "SHIP TO:" in linha_up and i + 1 < len(linhas):
-                            destino_atual = linhas[i+1].strip()
-                        
+                        # Identificar Modelo
                         if any(x in linha_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
                             modelo_atual = re.sub(r"\b(QTY|COST|TOTAL|FIRSTMAKE)\b", "", linha, flags=re.I).strip()
-                            
-                            # Procurar a linha de tamanhos (cabeçalho)
-                            for j in range(i, min(i + 4, len(linhas))):
-                                partes_h = linhas[j].upper().split()
-                                temp_map = {}
-                                for idx_p, p in enumerate(partes_h):
-                                    for t in tams_ref:
-                                        if t == p or (t in p and "/" in p):
-                                            temp_map[idx_p] = p
-                                if temp_map:
-                                    mapa_tams = temp_map
-                                    break
                             continue
 
+                        # Identificar Linha de Dados (Preço e Qtds)
                         if "€" in linha:
-                            partes = linha.split()
+                            partes_linha = linha.split()
+                            
+                            # Preço Unitário
                             precos = re.findall(r"(\d+[\.,]\d{2})", linha)
                             p_unit = float(precos[0].replace(',', '')) if precos else 0
                             
+                            # Cor
                             cor_candidata = ""
-                            for p in partes:
-                                p_up = p.upper().replace(',', '').replace('.', '')
-                                if p_up not in lixo_cor and not p_up.isdigit() and "€" not in p_up and len(p_up) > 2:
-                                    cor_candidata = p
+                            for pt in partes_linha:
+                                pt_up = pt.upper().replace(',', '').replace('.', '')
+                                if pt_up not in lixo_cor and not pt_up.isdigit() and "€" not in pt_up and len(pt_up) > 2:
+                                    cor_candidata = pt
                                     break
+
+                            # Extrair palavras da linha atual com coordenadas para bater com o cabeçalho
+                            palavras_linha = [pw for pw in palavras if pw['top'] > 0 and abs(pw['top'] - page.extract_text_lines()[0]['top']) < 500] # Simplificação de busca
+                            # Versão robusta: re-extraímos as palavras desta linha específica
                             
-                            for col_idx, tam_nome in mapa_tams.items():
-                                if col_idx < len(partes):
-                                    val_q = partes[col_idx]
-                                    if val_q.isdigit():
-                                        q_num = int(val_q)
-                                        if q_num > 0:
-                                            lista_dados.append({
-                                                'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
-                                                'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
-                                                'Cor': cor_candidata, 'Tamanho': tam_nome,
-                                                'TOTAL': q_num * p_unit, 'Destino': destino_atual, 'CPO': ""
-                                            })
+                            # Para cada tamanho mapeado no cabeçalho, procuramos um número abaixo dele
+                            for m in mapa_posicoes:
+                                # Procuramos na linha de texto atual por números que estejam "perto" da coordenada X do tamanho
+                                # Vamos usar uma margem de erro de 15 pixels
+                                for p_doc in palavras:
+                                    # Se a palavra está na mesma altura (Y) que a linha do € e na mesma largura (X) que o cabeçalho
+                                    if abs(p_doc['x0'] - m['x0']) < 20 and p_doc['text'].isdigit():
+                                        q_num = int(p_doc['text'])
+                                        if q_num > 0 and p_doc['top'] > 100: # Evita apanhar números do topo da página
+                                            # Verificar se este número pertence à linha atual (pelo texto)
+                                            if p_doc['text'] in partes_linha:
+                                                lista_dados.append({
+                                                    'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num,
+                                                    'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4,
+                                                    'Cor': cor_candidata, 'Tamanho': m['tamanho'],
+                                                    'TOTAL': q_num * p_unit, 'Destino': destino_atual, 'CPO': ""
+                                                })
 
         if lista_dados:
-            df = pd.DataFrame(lista_dados)
+            # Remover duplicados que possam surgir da busca por coordenadas
+            df = pd.DataFrame(lista_dados).drop_duplicates()
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success("✅ Conversão Concluída!")
+            st.success("✅ Conversão por Coordenadas Concluída!")
             st.download_button("⬇️ Descarregar Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
     except Exception as e:
         st.error(f"Erro: {e}")
