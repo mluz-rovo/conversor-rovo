@@ -216,6 +216,19 @@ def show_debug(events: list):
         for i, ev in enumerate(events):
             st.write(f"**{i}** — `{ev['type']}`", ev)
 
+def show_raw_lines(pdf_file):
+    """Mostra todas as linhas cruas de cada página para diagnóstico."""
+    with st.expander("🔬 Debug: Linhas cruas do PDF", expanded=True):
+        with pdfplumber.open(pdf_file) as pdf:
+            for p_num, page in enumerate(pdf.pages):
+                text = page.extract_text() or ""
+                st.markdown(f"**Página {p_num + 1}**")
+                for i, line in enumerate(text.split("\n")):
+                    # Mostra repr() para ver caracteres invisíveis/especiais
+                    has_price = any(c in line for c in ["€", "\u20ac", "EUR", "eur"])
+                    if has_price or any(pfx.upper() in line.upper() for pfx in MODEL_PREFIXES):
+                        st.code(f"[{i}] {repr(line)}")
+
 
 # ===========================================================================
 # APP PRINCIPAL
@@ -307,6 +320,7 @@ if uploaded_file:
         elif uploaded_file.name.endswith(".pdf") and client == "Studio Nicholson":
             events    = sn_extract_raw(uploaded_file)
             show_debug(events)
+            show_raw_lines(uploaded_file)
             data_list = sn_transform(events)
 
         # ── OUTPUT ───────────────────────────────────────────────────────────
