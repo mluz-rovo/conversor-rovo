@@ -9,18 +9,16 @@ st.set_page_config(page_title="ROVO - Conversor Universal", page_icon="🚀", la
 st.sidebar.title("🚀 MENU ROVO")
 cliente = st.sidebar.selectbox("Selecione o Cliente", ["Stussy", "Supreme", "Studio Nicholson"])
 
-# --- CAMPOS MANUAIS ---
+# --- CAMPOS MANUAIS APENAS PARA SUPREME ---
 ref_manual = ""
 des_manual = ""
-spo_manual = ""
 
 if cliente == "Supreme":
     st.sidebar.write("---")
     st.sidebar.subheader("📝 Dados Fixos Supreme")
     ref_manual = st.sidebar.text_input("Referência para PHC", placeholder="Ex: FW24-001")
     des_manual = st.sidebar.text_input("Designação para PHC", placeholder="Ex: Box Logo Hooded")
-    spo_manual = st.sidebar.text_input("Nr. SPO", placeholder="Ex: SPO-2024-01")
-    st.sidebar.caption("Estes valores serão aplicados a todas as linhas.")
+    st.sidebar.caption("Estes valores aparecerão em todas as linhas.")
 
 st.title(f"📦 Conversor: {cliente}")
 
@@ -46,22 +44,21 @@ if arquivo:
                             p = pd.to_numeric(p_raw, errors='coerce')
                         
                         if q and q > 0:
-                            p_val = p if pd.notna(p) else 0
                             lista_dados.append({
                                 'Referência': "", 
                                 'Designação': row[8] if len(row) > 8 else "", 
                                 'Quant.': q, 
                                 'Pr.Unit.': 0, 
-                                'Pr.Unit.Moeda': p_val, 
+                                'Pr.Unit.Moeda': p if pd.notna(p) else 0, 
                                 'Tabela de IVA': 4, 
                                 'Cor': row[7] if len(row) > 7 else "", 
                                 'Tamanho': row[9] if len(row) > 9 else "", 
-                                'TOTAL': q * p_val, 
+                                'TOTAL': q * (p if pd.notna(p) else 0), 
                                 'Destino': row[4] if len(row) > 4 else "Geral", 
                                 'CPO': "",
                                 'Nr. SPO': "",
-                                'Valor Unit. Supplier': p_val,
-                                'Total Supplier': q * p_val
+                                'Valor Unit. Supplier': "",
+                                'Total Supplier': ""
                             })
 
             # --- LÓGICA SUPREME ---
@@ -81,22 +78,21 @@ if arquivo:
                             for c_idx, t_nom in tams.items():
                                 q = pd.to_numeric(df.iloc[i, c_idx], errors='coerce')
                                 if q and q > 0:
-                                    p_val = p if pd.notna(p) else 0
                                     lista_dados.append({
                                         'Referência': ref_manual, 
                                         'Designação': des_manual, 
                                         'Quant.': q, 
                                         'Pr.Unit.': 0, 
-                                        'Pr.Unit.Moeda': p_val, 
+                                        'Pr.Unit.Moeda': p if pd.notna(p) else 0, 
                                         'Tabela de IVA': 4, 
                                         'Cor': df.iloc[i, 6], 
                                         'Tamanho': t_nom, 
-                                        'TOTAL': q * p_val, 
+                                        'TOTAL': q * (p if pd.notna(p) else 0), 
                                         'Destino': dest, 
                                         'CPO': "",
-                                        'Nr. SPO': spo_manual,
-                                        'Valor Unit. Supplier': p_val,
-                                        'Total Supplier': q * p_val
+                                        'Nr. SPO': "",
+                                        'Valor Unit. Supplier': "",
+                                        'Total Supplier': ""
                                     })
 
         # --- LÓGICA STUDIO NICHOLSON ---
@@ -138,35 +134,4 @@ if arquivo:
                             if y_ref is None: continue
                             for m in mapa_tams:
                                 for p_doc in palavras:
-                                    if abs(p_doc['top'] - y_ref) < 10 and abs(((p_doc['x0'] + p_doc['x1']) / 2) - m['centro']) < 12:
-                                        if p_doc['text'].isdigit() and p_doc['x1'] <= (x_max + 10):
-                                            q_num = int(p_doc['text'])
-                                            if q_num > 0:
-                                                lista_dados.append({
-                                                    'Referência': "", 'Designação': modelo_nicholson, 'Quant.': q_num, 
-                                                    'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 
-                                                    'Cor': cor_final, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 
-                                                    'Destino': destino_nicholson, 'CPO': "", 'Nr. SPO': "", 
-                                                    'Valor Unit. Supplier': 0, 'Total Supplier': 0
-                                                })
-
-        # --- GERAÇÃO FINAL ---
-        if lista_dados:
-            df_final = pd.DataFrame(lista_dados).drop_duplicates()
-            # Colunas atualizadas conforme pedido
-            cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO', 'Nr. SPO', 'Valor Unit. Supplier', 'Total Supplier']
-            
-            out = io.BytesIO()
-            with pd.ExcelWriter(out, engine='openpyxl') as writer:
-                for destino in df_final['Destino'].unique():
-                    nome_aba = str(destino).replace('[','').replace(']','').replace('*','').replace(':','').replace('?','').replace('/','').replace('\\','')[:31]
-                    df_dest = df_final[df_final['Destino'] == destino]
-                    df_dest[cols].to_excel(writer, index=False, sheet_name=nome_aba)
-            
-            st.success(f"✅ Conversão concluída com novas colunas de Supplier!")
-            st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
-        else:
-            st.warning("Nenhum dado encontrado.")
-
-    except Exception as e:
-        st.error(f"Erro no processamento: {e}")
+                                    if abs(p_doc['top'] - y_ref) < 10 and abs(((p_doc['x0'] + p_doc['x1']) / 2) - m
