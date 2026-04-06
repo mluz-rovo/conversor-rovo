@@ -30,12 +30,13 @@ uploaded_file = st.file_uploader("Upload file", type=file_format)
 # ===========================================================================
 SIZE_REFS   = ["XXS", "XS", "S", "M", "L", "XL", "XXL",
                "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-SKIP_LINES  = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL"]
+SKIP_LINES  = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL QTY", "TOTAL COST"]
 MODEL_PREFIXES = ["SNW -", "SNM -", "SN -", "LAY "]
-JUNK_WORDS  = {
+# Palavras a remover para isolar a cor
+COLOR_JUNK = {
     "JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY",
     "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL",
-    "FIRST", "MAKE"
+    "FIRST", "MAKE", "-", "–"
 }
 
 
@@ -97,7 +98,7 @@ def sn_extract_raw(pdf_file) -> list:
 
                 # Linha de preço/cor (contém €)
                 if "€" in line:
-                    ev = _parse_price_row(line, words, size_map)
+                    ev = _parse_price_row(line, size_map)
                     if ev:
                         events.append(ev)
 
@@ -115,51 +116,56 @@ def _build_size_map(words: list) -> list:
     return size_map
 
 
-def _parse_price_row(line: str, words: list, size_map: list) -> dict | None:
+def _parse_price_row(line: str, size_map: list) -> dict | None:
     """
-    A partir de uma linha com €, extrai cor, preço unitário e {tamanho: qty}.
-    Devolve um evento 'price_row' ou None se não encontrar nada útil.
+    Formato esperado:
+      'JERSEY - BRANDED BOXY FIT T-SHIRT BLACK – 6 11 10 7 1 35 € 13.95 € 488.25'
+    
+    Estrutura:
+      [descrição junk] [COR] – [qtds por tamanho] [total_qty] € [unit_price] € [total]
+    
+    Os tamanhos estão ordenados conforme size_map (extraído da linha de cabeçalho).
     """
-    # Preço unitário — primeiro decimal da linha
-    prices = re.findall(r"\d+[.,]\d{2}", line)
-    if not prices:
-        return None
-    unit_price = float(prices[0].replace(",", "."))
-
-    # Cor — tokens que não são números, junk words nem o símbolo €
-    color_tokens = [
-        pt for pt in line.split()
-        if pt.upper().replace(",", "").replace(".", "") not in JUNK_WORDS
-        and not re.match(r"^[\d.,€]+$", pt)
-        and len(pt) > 1
-    ]
-    color = " ".join(color_tokens[:2])
-
-    # Coordenada Y desta linha (primeira palavra que aparece no texto da linha)
-    y_ref = None
-    for w in words:
-        if w["text"] in line:
-            y_ref = w["top"]
-            break
-    if y_ref is None:
+    if "€" not in line:
         return None
 
-    # Associa quantidades às colunas de tamanho por proximidade X
-    x_max = max((m["x1"] for m in size_map), default=0)
+    # Preços: apanha todos os valores decimais após €
+    price_matches = re.findall(r"€\s*([\d,\.]+)", line)
+    if not price_matches:
+        return None
+    unit_price = float(price_matches[0].replace(",", ""))
+
+    # Parte antes do primeiro €
+    before_euro = line.split("€")[0].strip()
+
+    # Quantidades: todos os inteiros no final da parte antes do €
+    # O último número é o total_qty (ignorar), os anteriores são as qtds por tamanho
+    nums = re.findall(r"\b(\d+)\b", before_euro)
+    if not nums:
+        return None
+
+    qty_values = [int(n) for n in nums]
+    # O último número é o total — removemos
+    qty_values = qty_values[:-1]
+
+    # Associar qtds aos tamanhos (pela ordem do size_map)
     size_quantities = {}
-    for size_info in size_map:
-        for w in words:
-            if (abs(w["top"] - y_ref) < 10
-                    and abs((w["x0"] + w["x1"]) / 2 - size_info["center_x"]) < 15
-                    and w["text"].isdigit()
-                    and w["x1"] <= x_max + 10):
-                qty = int(w["text"])
-                if qty > 0:
-                    size_quantities[size_info["size"]] = qty
-                break
+    for i, size_info in enumerate(size_map):
+        if i < len(qty_values) and qty_values[i] > 0:
+            size_quantities[size_info["size"]] = qty_values[i]
 
     if not size_quantities:
         return None
+
+    # Cor: tokens antes dos números, excluindo junk words
+    before_nums = re.split(r"\s+\d", before_euro)[0]
+    color_tokens = [
+        t for t in before_nums.split()
+        if t.upper().strip("–-") not in COLOR_JUNK
+        and not re.match(r"^[\d.,]+$", t)
+        and len(t) > 1
+    ]
+    color = " ".join(color_tokens[-2:])  # últimas 2 palavras = cor
 
     return {
         "type": "price_row",
