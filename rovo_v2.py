@@ -85,10 +85,15 @@ def sn_extract_raw(pdf_file) -> list:
                     model = re.split(size_pattern, line, flags=re.I)[0].strip()
                     events.append({"type": "model", "model": model})
                     # Tamanhos pela ordem em que aparecem na linha
-                    current_sizes = [
-                        s for s in SIZE_REFS
-                        if re.search(r"\b" + s + r"\b", line, re.IGNORECASE)
-                    ]
+                    # Tokeniza a linha e filtra só os tokens que são tamanhos válidos
+                    # Usa a ordem do texto, não do SIZE_REFS, para preservar sequência real
+                    seen = set()
+                    current_sizes = []
+                    for token in line.split():
+                        t = token.upper().strip(".,")
+                        if t in SIZE_REFS and t not in seen:
+                            current_sizes.append(t)
+                            seen.add(t)
                     continue
 
                 # Linha de preço/cor (contém €)
