@@ -26,10 +26,19 @@ SHIP_RE  = re.compile(r"Ship To:\s*(.+?)(?=Docket Number|$)", re.IGNORECASE | re
 def extract_ship_to(text):
     m = SHIP_RE.search(text)
     if m:
-        # Primeira linha não vazia do bloco Ship To
-        lines = [l.strip() for l in m.group(1).split() if l.strip()]
-        return " ".join(lines[:3])  # ex: "NL Rotterdam - SEKO"
+        # Primeira linha real após "Ship To:" — até ao primeiro separador
+        raw = m.group(1).strip()
+        primeira = raw.split("\n")[0].strip() if "\n" in raw else raw.split("  ")[0].strip()
+        return primeira if primeira else "Ver PDF"
     return "Ver PDF"
+
+
+def parse_modelo(texto):
+    """Extrai só 'NOME SNW-XXXX' do modelo completo."""
+    m = re.search(r"([A-Z]+\s+SNW\s*-\s*\d+)", texto, re.IGNORECASE)
+    if m:
+        return re.sub(r"\s*-\s*", "-", m.group(1).strip())
+    return texto.strip()
 
 
 def parse_color(descricao):
@@ -51,7 +60,7 @@ def extract_studio_nicholson(pdf_file):
             destino = extract_ship_to(texto)
 
             for m in PRODUCT_PATTERN.finditer(texto):
-                modelo     = m.group(1).strip()
+                modelo     = parse_modelo(m.group(1))
                 sizes_raw  = m.group(2)
                 desc_cor   = m.group(3).strip()
                 qtys_raw   = m.group(4).strip().split()
