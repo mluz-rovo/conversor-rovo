@@ -56,7 +56,96 @@ def parse_size_line_std(line):
     return sizes
 
 
-def parse_quantities_pdf(pdf_source):
+# ===========================================================================
+# STUDIO NICHOLSON — extração via Claude API
+# ===========================================================================
+def extract_sn_with_claude(pdf_bytes: bytes) -> list:
+    import base64
+    import json
+
+    b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
+
+    prompt = """Este PDF é um packing list da Studio Nicholson com encomendas de roupa.
+Extrai TODOS os produtos de TODAS as páginas e devolve APENAS um JSON válido (sem texto extra, sem markdown).
+
+Estrutura obrigatória:
+[
+  {
+    "destination": "nome do destino (ex: TU PACK, SAMSUNG, JAPAN)",
+    "code": "código do modelo (ex: SNM-1485, SNW-1965)",
+    "model": "nome completo do modelo (ex: KUYTO SNM - 1485 SOFT TOUCH JERSEY)",
+    "color": "cor (ex: BLACK, PARCHMENT, ESPRESSO)",
+    "sizes": {
+      "XS": 54,
+      "S": 136,
+      "M": 94,
+      "L": 38,
+      "XL": 26,
+      "XXL": 0,
+      "UK4/IT36": 36,
+      "UK6/IT38": 63
+    }
+  }
+]
+
+Regras:
+- O destino está no cabeçalho de cada página (ex: "SHIP TO UK WAREHOUSE - TU PACK" → "TU PACK", "SHIP TO JAPAN" → "JAPAN", "SHIP TO KOREA" → "KOREA")
+- Inclui todos os tamanhos presentes, mesmo que a quantidade seja 0 ou "-"
+- "-" significa 0
+- Não incluas totais, só tamanhos individuais
+- Devolve APENAS o JSON, sem mais nada"""
+
+    response = __import__("urllib.request", fromlist=["urlopen"]).urlopen(
+        __import__("urllib.request", fromlist=["Request"]).Request(
+            "https://api.anthropic.com/v1/messages",
+            data=json.dumps({
+                "model": "claude-sonnet-4-20250514",
+                "max_tokens": 4000,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "document",
+                            "source": {
+                                "type": "base64",
+                                "media_type": "application/pdf",
+                                "data": b64
+                            }
+                        },
+                        {"type": "text", "text": prompt}
+                    ]
+                }]
+            }).encode(),
+            headers={"Content-Type": "application/json"},
+            method="POST"
+        )
+    )
+
+    data = json.loads(response.read())
+    raw  = data["content"][0]["text"].strip()
+    # Remove markdown se existir
+    raw  = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
+    items = json.loads(raw)
+
+    rows = []
+    for item in items:
+        dest  = item.get("destination", "See PDF")
+        code  = item.get("code", "")
+        model = item.get("model", "")
+        color = item.get("color", "")
+        for size, qty in item.get("sizes", {}).items():
+            if isinstance(qty, (int, float)) and qty > 0:
+                rows.append({
+                    "code":        code,
+                    "model":       model,
+                    "color":       color,
+                    "size":        size,
+                    "qty":         int(qty),
+                    "destination": dest,
+                })
+    return rows
+
+
     rows = []
     current_dest  = "See PDF"
     current_code  = ""
@@ -280,9 +369,13 @@ elif client == "Studio Nicholson":
     if uploaded_file:
         try:
             file_bytes = uploaded_file.read()
-            qty_rows   = parse_quantities_pdf(io.BytesIO(file_bytes))
+
+            with st.spinner("🤖 A interpretar o PDF com IA..."):
+                qty_rows = extract_sn_with_claude(file_bytes)
+
             if qty_rows:
                 st.session_state["sn_rows"] = qty_rows
+                st.success(f"✅ {len(qty_rows)} linhas encontradas!")
             elif "sn_rows" not in st.session_state:
                 st.warning("Nenhum dado encontrado no PDF.")
         except Exception as e:
