@@ -73,26 +73,21 @@ def parse_quantities_pdf(pdf_source):
                 if not l_up:
                     continue
 
-                # 1. DESTINO via SHIP TO
+                # 1. DESTINO via SHIP TO — usa sempre a linha seguinte
                 if l_up.startswith("SHIP TO"):
-                    dest_raw = re.sub(r"^SHIP\s+TO\s*", "", line, flags=re.I)
-                    dest_raw = re.sub(r"Ship\s+To:.*$", "", dest_raw, flags=re.I).strip()
-                    if " - " in dest_raw:
-                        dest_raw = dest_raw.split(" - ")[-1].strip()
-                    if len(dest_raw) < 3 and idx + 1 < len(lines):
-                        dest_raw = lines[idx + 1].strip()
-                    if dest_raw:
-                        current_dest = dest_raw
+                    if idx + 1 < len(lines):
+                        current_dest = lines[idx + 1].strip()
                     continue
 
-                # 2. DESTINO via "ROVO - ARAUJO IRMAOS <local>"
+                # 2. DESTINO via "ROVO - ARAUJO IRMAOS <local>" (fallback)
                 if l_up.startswith("ROVO -") or l_up.startswith("ROVO–"):
-                    parts = line.strip().split()
-                    try:
-                        irmaos_idx = [p.upper() for p in parts].index("IRMAOS")
-                        current_dest = " ".join(parts[irmaos_idx + 1:]).strip()
-                    except ValueError:
-                        current_dest = " ".join(parts[-2:]).strip()
+                    if not current_dest or current_dest == "See PDF":
+                        parts = line.strip().split()
+                        try:
+                            irmaos_idx = [p.upper() for p in parts].index("IRMAOS")
+                            current_dest = " ".join(parts[irmaos_idx + 1:]).strip()
+                        except ValueError:
+                            current_dest = " ".join(parts[-2:]).strip()
                     continue
 
                 # 3. MODELO
@@ -109,27 +104,32 @@ def parse_quantities_pdf(pdf_source):
                 if is_uk:
                     raw = re.sub(r"\s+", "", line.upper())
                     current_sizes = re.findall(r"UK\d+/IT\d+", raw)
+                    st.write(f"SIZES UK: {current_sizes} ← {repr(line[:60])}")
                     continue
                 elif is_std and not MODEL_RE.search(line):
                     current_sizes = parse_size_line_std(line)
+                    st.write(f"SIZES STD: {current_sizes} ← {repr(line[:60])}")
                     continue
 
                 # 5. SKIP totais
                 if any(skip in l_up for skip in SKIP_LINES):
+                    st.write(f"SKIP: {repr(line[:60])}")
                     continue
 
                 # 6. QUANTIDADES
                 if not current_code or not current_sizes:
+                    st.write(f"NO STATE (code={current_code!r}, sizes={current_sizes}): {repr(line[:60])}")
                     continue
 
                 first_word = l_up.split()[0] if l_up.split() else ""
                 if first_word not in PRODUCT_WORDS:
+                    st.write(f"NOT PRODUCT ({first_word!r}): {repr(line[:60])}")
                     continue
 
+                st.write(f"✅ QTY LINE: {repr(line[:60])}")
+
                 before_euro = line.split("€")[0] if "€" in line else line
-                # Substitui só hífens entre espaços (zeros no meio da linha de qtds)
-                # Não substitui o hífen em "JERSEY -" que está após letra
-                normalized  = re.sub(r"(?<=\s)[-–](?=\s|$)", "0", before_euro)
+                normalized  = re.sub(r"(?<!\w)[-–](?!\w)", "0", before_euro)
                 nums = re.findall(r"\b(\d+)\b", normalized)
                 if not nums:
                     continue
@@ -139,8 +139,7 @@ def parse_quantities_pdf(pdf_source):
                 if not qty_values:
                     continue
 
-                # Cor: texto antes do primeiro número
-                before_nums = re.split(r"\s+\d", before_euro)[0]
+                before_nums = re.split(r"\s+\d", normalized)[0]
                 color_tokens = [
                     t for t in before_nums.split()
                     if t.upper().strip("–-") not in COLOR_JUNK
