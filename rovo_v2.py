@@ -33,11 +33,27 @@ COLOR_JUNK     = {
     "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL",
     "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY"
 }
+# Regex para detectar linha de tamanhos colados ex: "UK4 / IT36UK6 / IT38..."
+SIZE_LINE_RE   = re.compile(r"UK\d+\s*/\s*IT\d+", re.IGNORECASE)
+# Regex para separar tamanhos colados
+SIZE_SPLIT_RE  = re.compile(r"(UK\d+\s*/\s*IT\d+)", re.IGNORECASE)
+# Regex para detectar linha de modelo
+MODEL_RE       = re.compile(r"(SNW|SNM|SN)\s*-\s*\d+", re.IGNORECASE)
 
 def extract_code(text: str) -> str:
     """Extrai o código de referência do modelo, ex: SNW-1868, SNM-1066."""
-    m = re.search(r"(S[NW]W?-\d+|SN-\d+)", text, re.IGNORECASE)
-    return m.group(1).upper() if m else ""
+    m = re.search(r"(S[NW]W?\s*-\s*\d+|SN\s*-\s*\d+)", text, re.IGNORECASE)
+    if m:
+        return re.sub(r"\s*-\s*", "-", m.group(1)).upper()
+    return ""
+
+def parse_size_line(line: str) -> list:
+    """
+    Separa uma linha de tamanhos colados como 'UK4 / IT36UK6 / IT38UK8 / IT40'
+    em ['UK4/IT36', 'UK6/IT38', 'UK8/IT40'].
+    """
+    parts = SIZE_SPLIT_RE.findall(line)
+    return [re.sub(r"\s*/\s*", "/", p).upper() for p in parts]
 
 
 # ===========================================================================
@@ -59,16 +75,14 @@ def parse_prices_pdf(pdf_file) -> dict:
                 if not l_up:
                     continue
 
-                # Linha de modelo (começa com LAY, SNW, SNM, SN)
-                if re.match(r"(LAY\s+)?(SNW|SNM|SN)-", l_up):
+                # Linha de tamanhos colados (ex: UK4 / IT36UK6 / IT38...)
+                if SIZE_LINE_RE.search(line):
+                    current_sizes = parse_size_line(line)
+                    continue
+
+                # Linha de modelo
+                if MODEL_RE.search(line):
                     current_code = extract_code(line)
-                    # Tamanhos presentes nesta linha
-                    seen, current_sizes = set(), []
-                    for token in line.split():
-                        t = token.upper().strip(".,")
-                        if t in SIZE_REFS and t not in seen:
-                            current_sizes.append(t)
-                            seen.add(t)
                     continue
 
                 # Linha de preço (contém €)
@@ -77,14 +91,12 @@ def parse_prices_pdf(pdf_file) -> dict:
                     if not price_matches:
                         continue
                     unit_price = float(price_matches[0].replace(",", ""))
-
-                    # Cor: tokens antes dos números excluindo junk
                     before_euro = line.split("€")[0].strip()
                     before_nums = re.split(r"\s+\d", before_euro)[0]
                     color_tokens = [
                         t for t in before_nums.split()
                         if t.upper().strip("–-") not in COLOR_JUNK
-                        and not re.match(r"^[\d.,]+$", t)
+                        and not re.match(r"^[\d.,/]+$", t)
                         and len(t) > 1
                     ]
                     color = " ".join(color_tokens[-2:]).upper()
