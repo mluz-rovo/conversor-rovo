@@ -279,6 +279,8 @@ elif client == "Studio Nicholson":
         try:
             file_bytes = uploaded_file.read()
             qty_rows   = parse_quantities_pdf(io.BytesIO(file_bytes))
+            st.write(f"qty_rows len: {len(qty_rows)}")
+            st.write(qty_rows[:3])
             if qty_rows:
                 st.session_state["sn_rows"] = qty_rows
             elif "sn_rows" not in st.session_state:
