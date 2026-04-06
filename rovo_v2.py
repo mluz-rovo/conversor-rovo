@@ -32,32 +32,40 @@ if uploaded_file:
         if uploaded_file.name.endswith('.xlsx'):
             xl = pd.ExcelFile(uploaded_file, engine='openpyxl')
             
-            # --- STUSSY LOGIC (Prioritize 'Sheet1' or 1st Sheet) ---
+            # --- STUSSY LOGIC ---
             if client == "Stussy":
+                # Prioritize 'Sheet1' or first available sheet
                 sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
                 df = xl.parse(sheet_name, header=None)
                 
                 for i, row in df.iloc[1:].iterrows():
-                    if len(row) >= 14:
-                        q = pd.to_numeric(row[12], errors='coerce')
-                        p_raw = row[13]
+                    # Check if row has enough columns (up to R / index 17)
+                    if len(row) >= 18:
+                        q_raw = row[12] # Column M (Qty)
+                        p_raw = row[17] # Column R (Unit Price Currency)
+                        
+                        q = pd.to_numeric(q_raw, errors='coerce')
+                        
+                        # Clean Price format
                         if isinstance(p_raw, str):
-                            p = pd.to_numeric(re.sub(r'[^\d\.]', '', p_raw.replace(',', '.')), errors='coerce')
+                            p_clean = re.sub(r'[^\d\.]', '', p_raw.replace(',', '.'))
+                            p = pd.to_numeric(p_clean, errors='coerce')
                         else:
                             p = pd.to_numeric(p_raw, errors='coerce')
                         
                         if q and q > 0:
+                            p_val = p if pd.notna(p) else 0
                             data_list.append({
                                 'Reference': "", 
-                                'Designation': row[8] if len(row) > 8 else "", 
+                                'Designation': row[8] if len(row) > 8 else "", # Column I
                                 'Qty': q, 
                                 'Unit Price': 0, 
-                                'Unit Price Currency': p if pd.notna(p) else 0, 
+                                'Unit Price Currency': p_val, 
                                 'VAT Table': 4, 
-                                'Color': row[7] if len(row) > 7 else "", 
-                                'Size': row[9] if len(row) > 9 else "", 
-                                'TOTAL': q * (p if pd.notna(p) else 0), 
-                                'Destination': row[4] if len(row) > 4 else "General", 
+                                'Color': row[7] if len(row) > 7 else "", # Column H
+                                'Size': row[9] if len(row) > 9 else "", # Column J
+                                'TOTAL': q * p_val, 
+                                'Destination': row[4] if len(row) > 4 else "General", # Column E
                                 'CPO No.': "",
                                 'SPO No.': "",
                                 'Supplier Unit Value': "",
@@ -81,16 +89,17 @@ if uploaded_file:
                             for c_idx, s_name in sizes.items():
                                 q = pd.to_numeric(df.iloc[i, c_idx], errors='coerce')
                                 if q and q > 0:
+                                    p_val = p if pd.notna(p) else 0
                                     data_list.append({
                                         'Reference': ref_manual, 
                                         'Designation': des_manual, 
                                         'Qty': q, 
                                         'Unit Price': 0, 
-                                        'Unit Price Currency': p if pd.notna(p) else 0, 
+                                        'Unit Price Currency': p_val, 
                                         'VAT Table': 4, 
                                         'Color': df.iloc[i, 6], 
                                         'Size': s_name, 
-                                        'TOTAL': q * (p if pd.notna(p) else 0), 
+                                        'TOTAL': q * p_val, 
                                         'Destination': dest, 
                                         'CPO No.': "",
                                         'SPO No.': "",
@@ -160,10 +169,10 @@ if uploaded_file:
                     df_dest = df_final[df_final['Destination'] == dest]
                     df_dest[cols].to_excel(writer, index=False, sheet_name=sheet_name)
             
-            st.success(f"✅ Conversion complete! {client} file is ready.")
+            st.success(f"✅ Success! Data fetched from Column R for Stussy prices.")
             st.download_button("⬇️ Download PHC Excel", out.getvalue(), f"IMPORT_{client}.xlsx")
         else:
-            st.warning("No data found in the file.")
+            st.warning("No valid data found. Check your file columns.")
 
     except Exception as e:
-        st.error(f"Error during processing: {e}")
+        st.error(f"Error: {e}")
