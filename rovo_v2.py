@@ -70,11 +70,17 @@ def sn_extract_raw(pdf_file) -> list:
             current_sizes = []  # lista de strings, ex: ["XS","S","M","L","XL","XXL"]
             for line in lines:
                 l_up = line.upper().strip()
-                if not l_up or any(skip in l_up for skip in SKIP_LINES):
+                if not l_up:
                     continue
 
-                # Linha de modelo — extrai tamanhos presentes nessa linha
-                if any(l_up.startswith(pfx.upper()) for pfx in MODEL_PREFIXES):
+                # Linha de modelo — tem prioridade sobre SKIP_LINES
+                is_model = any(l_up.startswith(pfx.upper()) for pfx in MODEL_PREFIXES)
+
+                # Ignora linhas de totais/cabeçalhos — mas só se não for linha de modelo
+                if not is_model and any(skip in l_up for skip in SKIP_LINES):
+                    continue
+
+                if is_model:
                     size_pattern = r"\b(" + "|".join(SIZE_REFS) + r"|Qty|Cost|Total|First)\b"
                     model = re.split(size_pattern, line, flags=re.I)[0].strip()
                     events.append({"type": "model", "model": model})
