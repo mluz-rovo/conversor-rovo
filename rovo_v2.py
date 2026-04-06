@@ -56,7 +56,6 @@ def sn_extract_raw(pdf_file) -> list:
 
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
-            words = page.extract_words(keep_blank_chars=False)
             text  = page.extract_text() or ""
             lines = text.split("\n")
 
@@ -104,16 +103,6 @@ def sn_extract_raw(pdf_file) -> list:
 
     return events
 
-
-def _build_size_map(words: list) -> list:
-    """Devolve [{size, center_x, x1}] para cada label de tamanho reconhecido na página."""
-    size_map = []
-    for w in words:
-        t = w["text"].upper().strip()
-        if t in SIZE_REFS or any(ref in t and "/" in t for ref in SIZE_REFS):
-            cx = (w["x0"] + w["x1"]) / 2
-            size_map.append({"size": t, "center_x": cx, "x1": w["x1"]})
-    return size_map
 
 
 def _parse_price_row(line: str, sizes: list) -> dict | None:
@@ -223,8 +212,7 @@ def show_raw_lines(pdf_file):
                 text = page.extract_text() or ""
                 st.markdown(f"**Página {p_num + 1}**")
                 for i, line in enumerate(text.split("\n")):
-                    # Mostra repr() para ver caracteres invisíveis/especiais
-                    has_price = any(c in line for c in ["€", "\u20ac", "EUR", "eur"])
+                    has_price = any(c in line for c in ["€", "\u20ac", "EUR"])
                     if has_price or any(pfx.upper() in line.upper() for pfx in MODEL_PREFIXES):
                         st.code(f"[{i}] {repr(line)}")
 
