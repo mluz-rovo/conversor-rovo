@@ -99,11 +99,14 @@ def parse_quantities_pdf(pdf_file) -> list:
                     log.append(f"NOT PRODUCT ({first_word!r}) → {repr(line[:60])}")
                     continue
 
-                normalized = re.sub(r"(?<!\w)[-–](?!\w)", "0", line)
+                # Quantidades: números entre a cor e o €
+                before_euro = line.split("€")[0] if "€" in line else line
+                normalized  = re.sub(r"(?<!\w)[-–](?!\w)", " ", before_euro)
                 nums = re.findall(r"\b(\d+)\b", normalized)
-                qty_values = [int(n) for n in nums][:-1] if nums else []
+                qty_values = [int(n) for n in nums][:-1] if len(nums) > 1 else [int(n) for n in nums]
 
-                before_nums = re.split(r"\s+[\d–-]", line)[0]
+                # Cor: última(s) palavra(s) antes dos números
+                before_nums = re.split(r"\s+\d", normalized)[0]
                 color_tokens = [
                     t for t in before_nums.split()
                     if t.upper().strip("–-") not in COLOR_JUNK
