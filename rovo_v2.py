@@ -34,37 +34,22 @@ COLOR_JUNK     = {
     "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY", "SCOOP", "SLEEVE",
     "PRODUCTION", "MADE", "LOCATION", "UNITED", "KINGDOM", "KOREA", "SOUTH"
 }
-# Regex para detectar linha de modelo — aceita hífen, travessão e espaços
 MODEL_RE       = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
-# Regex para detectar linha de tamanhos colados
-SIZE_LINE_RE   = re.compile(r"UK\s*\d+\s*/\s*IT\s*\d+", re.IGNORECASE)
-# Regex para separar tamanhos colados
-SIZE_SPLIT_RE  = re.compile(r"(UK\s*\d+\s*/\s*IT\s*\d+)", re.IGNORECASE)
 
 def extract_code(text: str) -> str:
-    """Extrai o código de referência, ex: SNW-1868. Aceita hífen ou travessão."""
     m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
     if m:
-        # Normaliza espaços e travessão para hífen simples
         return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper()
     return ""
 
-def parse_size_line(line: str) -> list:
-    """Separa tamanhos colados como 'UK4 / IT36UK6 / IT38' em ['UK4/IT36', 'UK6/IT38']."""
-    parts = SIZE_SPLIT_RE.findall(line)
-    return [re.sub(r"\s*/\s*", "/", re.sub(r"\s+", "", p)).upper() for p in parts]
-
 
 # ===========================================================================
-# PDF DE PREÇOS (com € e Ship To)
-# Devolve dict: {(code, color): unit_price}
+# PDF DE PREÇOS
 # ===========================================================================
 def parse_prices_pdf(pdf_file) -> dict:
-    # {(code, color): {"unit_price": float, "designation": str}}
     prices = {}
     current_code        = ""
     current_designation = ""
-    current_sizes       = []
 
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -76,20 +61,18 @@ def parse_prices_pdf(pdf_file) -> dict:
                 if not l_up:
                     continue
 
-                # Linha de tamanhos colados (ex: UK4 / IT36UK6 / IT38...)
-                if SIZE_LINE_RE.search(line):
-                    current_sizes = parse_size_line(line)
+                # Linha de tamanhos — ignorar (não necessária para preços)
+                if re.search(r"UK\s*\d+", line, re.IGNORECASE) and re.search(r"IT\s*\d+", line, re.IGNORECASE):
                     continue
 
-                # Linha de modelo — guarda código e nome completo antes do código
+                # Linha de modelo
                 if MODEL_RE.search(line):
                     current_code = extract_code(line)
-                    # Nome completo: tudo antes do código, ex: "SORIN SNW - 1868 MICRO RIB" → "SORIN SNW-1868"
-                    name_part = re.split(r"(SNW|SNM|SN)\s*-\s*\d+", line, flags=re.I)[0].strip()
+                    name_part = re.split(r"(SNW|SNM|SN)\s*[-–]\s*\d+", line, flags=re.I)[0].strip()
                     current_designation = f"{name_part} {current_code}".strip()
                     continue
 
-                # Linha de preço (contém €) — ignora linhas de totais gerais
+                # Linha de preço
                 if "€" in line and current_code and "TOTAL" not in l_up:
                     price_matches = re.findall(r"€\s*([\d,\.]+)", line)
                     if not price_matches:
@@ -104,17 +87,17 @@ def parse_prices_pdf(pdf_file) -> dict:
                         and len(t) > 1
                     ]
                     color = " ".join(color_tokens[-2:]).upper()
-                    prices[(current_code, color)] = {
-                        "unit_price":   unit_price,
-                        "designation":  current_designation,
-                    }
+                    if color:
+                        prices[(current_code, color)] = {
+                            "unit_price":  unit_price,
+                            "designation": current_designation,
+                        }
 
     return prices
 
 
 # ===========================================================================
-# PDF DE QUANTIDADES (com UK sizes e SHIP TO no cabeçalho)
-# Devolve lista de dicts com todos os campos excepto unit_price
+# PDF DE QUANTIDADES
 # ===========================================================================
 def parse_quantities_pdf(pdf_file) -> list:
     rows = []
@@ -133,77 +116,72 @@ def parse_quantities_pdf(pdf_file) -> list:
                 if not l_up:
                     continue
 
-                # Destino — "SHIP TO ..." no cabeçalho
+                # 1. DESTINO
                 if l_up.startswith("SHIP TO"):
-                    # Tira "SHIP TO" e fica com o resto, ex: "UK WAREHOUSE - TU PACK"
-                    dest_raw = re.sub(r"^SHIP\s+TO\s*", "", line, flags=re.I).strip()
-                    if " - " in dest_raw:
-                        current_dest = dest_raw.split(" - ")[-1].strip()
-                    else:
-                        current_dest = dest_raw
+                    dest_raw = re.sub(r"^SHIP\s+TO\s*", "", line, flags=re.I)
+                    dest_raw = re.sub(r"Ship\s+To:.*$", "", dest_raw, flags=re.I).strip()
+                    current_dest = dest_raw.split(" - ")[-1].strip() if " - " in dest_raw else dest_raw
                     continue
 
-                # Linha de modelo
-                if re.match(r".*(SNW|SNM|SN)\s*-\s*\d+", l_up):
+                # 2. MODELO
+                if MODEL_RE.search(line):
                     current_code  = extract_code(line)
-                    current_model = line.strip()
-                    # Tamanhos nesta linha (ex: UK4/IT36 UK6/IT38 ...)
-                    seen, current_sizes = set(), []
-                    for token in line.split():
-                        t = token.upper().strip(".,")
-                        if t in SIZE_REFS and t not in seen:
-                            current_sizes.append(t)
-                            seen.add(t)
+                    current_model = re.split(r"\s+Qty\b", line, flags=re.I)[0].strip()
+                    current_sizes = []
                     continue
 
-                # Linha de quantidades: tem números e uma cor reconhecível
-                # Ignora linhas de totais
+                # 3. TAMANHOS
+                if re.search(r"UK\s*\d+", line, re.IGNORECASE) and re.search(r"IT\s*\d+", line, re.IGNORECASE):
+                    raw = re.sub(r"\s+", "", line.upper())
+                    current_sizes = re.findall(r"UK\d+/IT\d+", raw)
+                    continue
+
+                # 4. SKIP totais
                 if any(skip in l_up for skip in SKIP_LINES):
                     continue
 
-                if current_code and current_sizes:
-                    nums = re.findall(r"\b(\d+)\b", line)
-                    if not nums:
-                        continue
+                # 5. QUANTIDADES
+                if not current_code or not current_sizes:
+                    continue
 
-                    qty_values = [int(n) for n in nums]
-                    # Último número = total geral → ignorar
-                    qty_values = qty_values[:-1]
+                normalized = re.sub(r"(?<!\w)[-–](?!\w)", "0", line)
+                nums = re.findall(r"\b(\d+)\b", normalized)
+                if not nums:
+                    continue
 
-                    if not qty_values:
-                        continue
+                qty_values = [int(n) for n in nums][:-1]
+                if not qty_values:
+                    continue
 
-                    # Cor: tokens sem números e sem junk
-                    color_tokens = [
-                        t for t in line.split()
-                        if t.upper().strip("–-") not in COLOR_JUNK
-                        and not re.match(r"^[\d.,/]+$", t)
-                        and len(t) > 1
-                        and t.upper() not in SIZE_REFS
-                    ]
-                    color = " ".join(color_tokens[-2:]).upper()
-                    if not color:
-                        continue
+                before_nums = re.split(r"\s+[\d–-]", line)[0]
+                color_tokens = [
+                    t for t in before_nums.split()
+                    if t.upper().strip("–-") not in COLOR_JUNK
+                    and not re.match(r"^[\d.,/]+$", t)
+                    and len(t) > 1
+                ]
+                color = " ".join(color_tokens[-2:]).upper() if color_tokens else ""
+                if not color:
+                    continue
 
-                    # Alinha qtds pelos últimos N tamanhos (zeros à esquerda omitidos)
-                    offset = len(current_sizes) - len(qty_values)
-                    for i, size in enumerate(current_sizes):
-                        idx = i - offset
-                        if idx >= 0 and qty_values[idx] > 0:
-                            rows.append({
-                                "code":        current_code,
-                                "color":       color,
-                                "model":       current_model,
-                                "size":        size,
-                                "qty":         qty_values[idx],
-                                "destination": current_dest,
-                            })
+                offset = len(current_sizes) - len(qty_values)
+                for i, size in enumerate(current_sizes):
+                    idx = i - offset
+                    if idx >= 0 and qty_values[idx] > 0:
+                        rows.append({
+                            "code":        current_code,
+                            "color":       color,
+                            "model":       current_model,
+                            "size":        size,
+                            "qty":         qty_values[idx],
+                            "destination": current_dest,
+                        })
 
     return rows
 
 
 # ===========================================================================
-# CRUZAMENTO: quantidades + preços → linhas finais
+# CRUZAMENTO
 # ===========================================================================
 def merge_sn(qty_rows: list, prices: dict) -> list:
     final = []
@@ -212,10 +190,10 @@ def merge_sn(qty_rows: list, prices: dict) -> list:
     for r in qty_rows:
         key       = (r["code"], r["color"])
         price_obj = prices.get(key, {})
-        unit_price   = price_obj.get("unit_price", 0)
-        designation  = price_obj.get("designation", r["model"])
+        unit_price  = price_obj.get("unit_price", 0)
+        designation = price_obj.get("designation", r["model"])
 
-        if unit_price == 0:
+        if not price_obj:
             unmatched.add(key)
 
         final.append({
@@ -253,7 +231,7 @@ if client == "Studio Nicholson":
     with col2:
         st.markdown("**PDF de Quantidades** (com UK sizes)")
         pdf_qty = st.file_uploader("Upload PDF Quantidades", type=["pdf"], key="pdf_qty")
-    uploaded_file = None  # não usado para SN
+    uploaded_file = None
 else:
     uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
     pdf_prices = None
@@ -281,14 +259,12 @@ try:
 
         for i, row in df.iloc[1:].iterrows():
             if len(row) >= 18:
-                q_raw = row[12]
+                q = pd.to_numeric(row[12], errors="coerce")
                 p_raw = row[17]
-                q = pd.to_numeric(q_raw, errors="coerce")
                 if isinstance(p_raw, str):
                     p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
                 else:
                     p = pd.to_numeric(p_raw, errors="coerce")
-
                 if q and q > 0:
                     p_val = p if pd.notna(p) else 0
                     data_list.append({
@@ -316,12 +292,10 @@ try:
                 continue
             df = xl.parse(sheet, header=None)
             sizes = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
-
             for start in range(16, len(df), 14):
                 dest = str(df.iloc[start, 0]).strip()
                 if not dest or dest == "nan":
                     dest = "General"
-
                 for i in range(start + 1, start + 13):
                     if i >= len(df) or pd.isna(df.iloc[i, 6]):
                         continue
@@ -351,52 +325,14 @@ try:
     elif client == "Studio Nicholson" and pdf_prices and pdf_qty:
         with st.spinner("A processar PDFs..."):
             pdf_prices.seek(0)
+            prices = parse_prices_pdf(pdf_prices)
             pdf_qty.seek(0)
-            prices    = parse_prices_pdf(pdf_prices)
-            pdf_qty.seek(0)
-            qty_rows  = parse_quantities_pdf(pdf_qty)
+            qty_rows = parse_quantities_pdf(pdf_qty)
             data_list = merge_sn(qty_rows, prices)
-
-        with st.expander("🐛 Debug interno parse_quantities", expanded=True):
-            st.write("**Chamada à função OK**")
-            debug_lines = []
-            pdf_qty.seek(0)
-            with pdfplumber.open(pdf_qty) as pdf:
-                for p_num, page in enumerate(pdf.pages):
-                    text = page.extract_text() or ""
-                    for i, line in enumerate(text.split("\n")):
-                        l_up = line.upper().strip()
-                        is_model = bool(MODEL_RE.search(line))
-                        is_size  = bool(SIZE_LINE_RE.search(line))
-                        is_ship  = l_up.startswith("SHIP TO")
-                        has_nums = bool(re.findall(r"\b\d+\b", line))
-                        debug_lines.append(
-                            f"p{p_num+1}[{i}] model={is_model} size={is_size} ship={is_ship} nums={has_nums} | {repr(line)[:80]}"
-                        )
-            for dl in debug_lines:
-                st.text(dl)
-        with st.expander("🔍 Debug: Quantidades extraídas", expanded=True):
-            st.write(f"Total linhas: {len(qty_rows)}")
-            st.write(qty_rows[:30])
-        with st.expander("🔬 Debug: Linhas cruas PDF Preços", expanded=True):
-            with pdfplumber.open(pdf_prices) as pdf:
-                for p_num, page in enumerate(pdf.pages):
-                    text = page.extract_text() or ""
-                    st.markdown(f"**Página {p_num + 1}**")
-                    for i, line in enumerate(text.split("\n")):
-                        st.code(f"[{i}] {repr(line)}")
-        with st.expander("🔬 Debug: Linhas cruas PDF Quantidades", expanded=True):
-            with pdfplumber.open(pdf_qty) as pdf:
-                for p_num, page in enumerate(pdf.pages):
-                    text = page.extract_text() or ""
-                    st.markdown(f"**Página {p_num + 1}**")
-                    for i, line in enumerate(text.split("\n")):
-                        st.code(f"[{i}] {repr(line)}")
 
     # ── OUTPUT ───────────────────────────────────────────────────────────
     if data_list:
         df_final = pd.DataFrame(data_list).drop_duplicates()
-
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
             for dest in df_final["Destination"].unique():
@@ -404,12 +340,10 @@ try:
                 df_final[df_final["Destination"] == dest][cols].to_excel(
                     writer, index=False, sheet_name=safe_name
                 )
-
         st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
         st.download_button("⬇️ Download PHC Excel", out.getvalue(), f"IMPORT_{client}.xlsx")
-
     elif client == "Studio Nicholson" and (not pdf_prices or not pdf_qty):
-        pass  # aguarda upload dos dois ficheiros
+        pass
     else:
         if uploaded_file or (pdf_prices and pdf_qty):
             st.warning("Nenhum dado válido encontrado. Verifica o ficheiro.")
