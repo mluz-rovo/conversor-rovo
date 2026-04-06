@@ -306,6 +306,7 @@ if uploaded_file:
         # ── STUDIO NICHOLSON ─────────────────────────────────────────────────
         elif uploaded_file.name.endswith(".pdf") and client == "Studio Nicholson":
             events    = sn_extract_raw(uploaded_file)
+            show_debug(events)
             data_list = sn_transform(events)
 
         # ── OUTPUT ───────────────────────────────────────────────────────────
@@ -334,3 +335,4 @@ if uploaded_file:
 
     except Exception as e:
         st.error(f"Erro: {e}")
+        st.exception(e)
