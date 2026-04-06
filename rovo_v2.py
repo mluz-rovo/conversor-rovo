@@ -63,8 +63,16 @@ def sn_extract_raw(pdf_file) -> list:
             if "Ship To:" in text:
                 after      = text.split("Ship To:", 1)[1]
                 dest_lines = [l.strip() for l in after.split("\n") if l.strip()]
-                if dest_lines:
-                    events.append({"type": "destination", "dest": dest_lines[0]})
+                # Ignora linhas administrativas (Docket, Payment, Order, etc.)
+                skip_dest  = re.compile(
+                    r"docket|payment|terms|order|season|ref|po\s*#|date",
+                    re.IGNORECASE
+                )
+                dest_line  = next(
+                    (l for l in dest_lines if not skip_dest.search(l)), None
+                )
+                if dest_line:
+                    events.append({"type": "destination", "dest": dest_line})
 
             # Mapa de tamanhos nesta página
             size_map = _build_size_map(words)
