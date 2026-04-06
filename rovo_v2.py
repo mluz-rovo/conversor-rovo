@@ -22,7 +22,7 @@ if client == "Supreme":
 st.title(f"📦 Converter: {client}")
 
 # ===========================================================================
-# STUDIO NICHOLSON — CONSTANTES
+# STUDIO NICHOLSON — CONSTANTES E FUNÇÕES
 # ===========================================================================
 SKIP_LINES = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COST TOTAL"]
 COLOR_JUNK = {
@@ -36,12 +36,12 @@ MODEL_RE = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
 PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
 
 
-
-
+def extract_code(text):
     m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
     return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper() if m else ""
 
-def parse_quantities_pdf(pdf_source) -> list:
+
+def parse_quantities_pdf(pdf_source):
     rows = []
     current_dest  = "See PDF"
     current_code  = ""
@@ -97,7 +97,7 @@ def parse_quantities_pdf(pdf_source) -> list:
                 if any(skip in l_up for skip in SKIP_LINES):
                     continue
 
-                # 6. QUANTIDADES — só linhas de produto
+                # 6. QUANTIDADES
                 if not current_code or not current_sizes:
                     continue
 
@@ -139,11 +139,6 @@ def parse_quantities_pdf(pdf_source) -> list:
     return rows
 
 
-@st.cache_data
-def cached_parse(file_bytes: bytes) -> list:
-    import io as _io
-    return parse_quantities_pdf(_io.BytesIO(file_bytes))
-
 # ===========================================================================
 # COLUNAS FINAIS
 # ===========================================================================
@@ -156,7 +151,7 @@ cols = [
 
 
 # ===========================================================================
-# STUSSY & SUPREME — uploader normal
+# STUSSY & SUPREME
 # ===========================================================================
 if client in ["Stussy", "Supreme"]:
     uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
@@ -252,7 +247,7 @@ if client in ["Stussy", "Supreme"]:
 
 
 # ===========================================================================
-# STUDIO NICHOLSON — fluxo separado
+# STUDIO NICHOLSON
 # ===========================================================================
 elif client == "Studio Nicholson":
     uploaded_file = st.file_uploader("Upload PDF Quantidades", type=["pdf"])
@@ -265,7 +260,7 @@ elif client == "Studio Nicholson":
             if not qty_rows:
                 st.warning("Nenhum dado encontrado no PDF.")
             else:
-                models = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
+                models  = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
 
                 st.subheader("💶 Introduz o preço unitário por modelo")
                 price_map = {}
