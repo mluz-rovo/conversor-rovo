@@ -9,14 +9,16 @@ st.set_page_config(page_title="ROVO - Conversor Universal", page_icon="🚀", la
 st.sidebar.title("🚀 MENU ROVO")
 cliente = st.sidebar.selectbox("Selecione o Cliente", ["Stussy", "Supreme", "Studio Nicholson"])
 
-# --- NOVOS CAMPOS PARA SUPREME ---
+# --- CAMPOS MANUAIS APENAS PARA SUPREME ---
 ref_manual = ""
 des_manual = ""
+
 if cliente == "Supreme":
     st.sidebar.write("---")
-    st.sidebar.subheader("📝 Dados do PO Supreme")
-    ref_manual = st.sidebar.text_input("Referência (ex: FW24)")
-    des_manual = st.sidebar.text_input("Designação (ex: Box Logo Hooded)")
+    st.sidebar.subheader("📝 Dados Fixos Supreme")
+    ref_manual = st.sidebar.text_input("Referência para PHC", placeholder="Ex: FW24-001")
+    des_manual = st.sidebar.text_input("Designação para PHC", placeholder="Ex: Box Logo Hooded")
+    st.sidebar.caption("Estes valores serão aplicados a todas as linhas do ficheiro.")
 
 st.title(f"📦 Conversor: {cliente}")
 
@@ -43,14 +45,20 @@ if arquivo:
                         
                         if q and q > 0:
                             lista_dados.append({
-                                'Referência': "", 'Designação': row[8] if len(row) > 8 else "", 
-                                'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p if pd.notna(p) else 0, 
-                                'Tabela de IVA': 4, 'Cor': row[7] if len(row) > 7 else "", 
-                                'Tamanho': row[9] if len(row) > 9 else "", 'TOTAL': q * (p if pd.notna(p) else 0), 
-                                'Destino': row[4] if len(row) > 4 else "Geral", 'CPO': ""
+                                'Referência': "", 
+                                'Designação': row[8] if len(row) > 8 else "", 
+                                'Quant.': q, 
+                                'Pr.Unit.': 0, 
+                                'Pr.Unit.Moeda': p if pd.notna(p) else 0, 
+                                'Tabela de IVA': 4, 
+                                'Cor': row[7] if len(row) > 7 else "", 
+                                'Tamanho': row[9] if len(row) > 9 else "", 
+                                'TOTAL': q * (p if pd.notna(p) else 0), 
+                                'Destino': row[4] if len(row) > 4 else "Geral", 
+                                'CPO': ""
                             })
 
-            # --- LÓGICA SUPREME (COM INPUTS MANUAIS) ---
+            # --- LÓGICA SUPREME (USANDO INPUTS DO SIDEBAR) ---
             elif cliente == "Supreme":
                 for aba in xl.sheet_names:
                     if "TOTAL" in aba.upper(): continue
@@ -59,7 +67,7 @@ if arquivo:
                     
                     for start in range(16, len(df), 14):
                         dest = str(df.iloc[start, 0]).strip()
-                        if not dest or dest == "nan": dest = "Indefinido"
+                        if not dest or dest == "nan": dest = "Geral"
                         
                         for i in range(start + 1, start + 13):
                             if i >= len(df) or pd.isna(df.iloc[i, 6]): continue
@@ -68,11 +76,17 @@ if arquivo:
                                 q = pd.to_numeric(df.iloc[i, c_idx], errors='coerce')
                                 if q and q > 0:
                                     lista_dados.append({
-                                        'Referência': ref_manual, # USA O CAMPO MANUAL
-                                        'Designação': des_manual, # USA O CAMPO MANUAL
-                                        'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p if pd.notna(p) else 0, 
-                                        'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 
-                                        'TOTAL': q * (p if pd.notna(p) else 0), 'Destino': dest, 'CPO': ""
+                                        'Referência': ref_manual, 
+                                        'Designação': des_manual, 
+                                        'Quant.': q, 
+                                        'Pr.Unit.': 0, 
+                                        'Pr.Unit.Moeda': p if pd.notna(p) else 0, 
+                                        'Tabela de IVA': 4, 
+                                        'Cor': df.iloc[i, 6], 
+                                        'Tamanho': t_nom, 
+                                        'TOTAL': q * (p if pd.notna(p) else 0), 
+                                        'Destino': dest, 
+                                        'CPO': ""
                                     })
 
         # --- LÓGICA STUDIO NICHOLSON ---
@@ -80,8 +94,8 @@ if arquivo:
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
                 lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST", "MAKE"]
-                modelo_atual = ""
-                destino_final = "Ver PDF"
+                mod_ Nicholson = ""
+                dest_ Nicholson = "Ver PDF"
                 for page in pdf.pages:
                     palavras = page.extract_words()
                     texto = page.extract_text()
@@ -90,7 +104,7 @@ if arquivo:
                     ship_match = re.search(r"Ship To:\s*(.*)", texto, re.IGNORECASE)
                     if ship_match:
                         linhas_ship = texto.split("Ship To:")[1].split('\n')
-                        destino_final = linhas_ship[1].strip() if len(linhas_ship) > 1 else destino_final
+                        dest_ Nicholson = linhas_ship[1].strip() if len(linhas_ship) > 1 else dest_ Nicholson
                     mapa_tams = []
                     x_max = 0
                     for p in palavras:
@@ -102,7 +116,7 @@ if arquivo:
                         l_up = linha.upper()
                         if any(x in l_up for x in ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL"]): continue
                         if any(x in l_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
-                            modelo_atual = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
+                            mod_ Nicholson = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
                             continue
                         if "€" in linha:
                             pts = linha.split()
@@ -118,9 +132,9 @@ if arquivo:
                                         if p_doc['text'].isdigit() and p_doc['x1'] <= (x_max + 10):
                                             q_num = int(p_doc['text'])
                                             if q_num > 0:
-                                                lista_dados.append({'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num, 'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 'Cor': cor_final, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 'Destino': destino_final, 'CPO': ""})
+                                                lista_dados.append({'Referência': "", 'Designação': mod_ Nicholson, 'Quant.': q_num, 'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 'Cor': cor_final, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 'Destino': dest_ Nicholson, 'CPO': ""})
 
-        # --- GERAÇÃO DO FICHEIRO FINAL ---
+        # --- GERAÇÃO FINAL ---
         if lista_dados:
             df_final = pd.DataFrame(lista_dados).drop_duplicates()
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
@@ -132,10 +146,10 @@ if arquivo:
                     df_dest = df_final[df_final['Destino'] == destino]
                     df_dest[cols].to_excel(writer, index=False, sheet_name=nome_aba)
             
-            st.success(f"✅ Ficheiro {cliente} pronto para download!")
+            st.success(f"✅ Conversão concluída!")
             st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
             st.warning("Nenhum dado encontrado.")
 
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro no processamento: {e}")
