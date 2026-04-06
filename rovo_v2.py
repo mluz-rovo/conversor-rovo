@@ -134,4 +134,34 @@ if arquivo:
                             if y_ref is None: continue
                             for m in mapa_tams:
                                 for p_doc in palavras:
-                                    if abs(p_doc['top'] - y_ref) < 10 and abs(((p_doc['x0'] + p_doc['x1']) / 2) - m
+                                    if abs(p_doc['top'] - y_ref) < 10 and abs(((p_doc['x0'] + p_doc['x1']) / 2) - m['centro']) < 12:
+                                        if p_doc['text'].isdigit() and p_doc['x1'] <= (x_max + 10):
+                                            q_num = int(p_doc['text'])
+                                            if q_num > 0:
+                                                lista_dados.append({
+                                                    'Referência': "", 'Designação': modelo_nicholson, 'Quant.': q_num, 
+                                                    'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 
+                                                    'Cor': cor_final, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 
+                                                    'Destino': destino_nicholson, 'CPO': "", 
+                                                    'Nr. SPO': "", 'Valor Unit. Supplier': "", 'Total Supplier': ""
+                                                })
+
+        # --- GERAÇÃO FINAL ---
+        if lista_dados:
+            df_final = pd.DataFrame(lista_dados).drop_duplicates()
+            cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO', 'Nr. SPO', 'Valor Unit. Supplier', 'Total Supplier']
+            
+            out = io.BytesIO()
+            with pd.ExcelWriter(out, engine='openpyxl') as writer:
+                for destino in df_final['Destino'].unique():
+                    nome_aba = str(destino).replace('[','').replace(']','').replace('*','').replace(':','').replace('?','').replace('/','').replace('\\','')[:31]
+                    df_dest = df_final[df_final['Destino'] == destino]
+                    df_dest[cols].to_excel(writer, index=False, sheet_name=nome_aba)
+            
+            st.success(f"✅ Conversão concluída! Colunas de Supplier adicionadas e prontas a preencher.")
+            st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
+        else:
+            st.warning("Nenhum dado encontrado.")
+
+    except Exception as e:
+        st.error(f"Erro no processamento: {e}")
