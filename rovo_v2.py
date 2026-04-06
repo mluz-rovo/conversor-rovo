@@ -31,10 +31,12 @@ if arquivo:
         if arquivo.name.endswith('.xlsx'):
             xl = pd.ExcelFile(arquivo, engine='openpyxl')
             
-            # --- LÓGICA STUSSY (Sempre a 1ª Folha) ---
+            # --- LÓGICA STUSSY (Busca por Nome 'Sheet1' ou 1ª Aba) ---
             if cliente == "Stussy":
-                # xl.sheet_names[0] garante que pega na primeira aba, não importa o nome
-                df = xl.parse(xl.sheet_names[0], header=None)
+                # Tenta encontrar "Sheet1". Se não existir, pega a primeira da lista.
+                nome_da_aba = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
+                df = xl.parse(nome_da_aba, header=None)
+                
                 for i, row in df.iloc[1:].iterrows():
                     if len(row) >= 14:
                         q = pd.to_numeric(row[12], errors='coerce')
@@ -159,7 +161,7 @@ if arquivo:
                     df_dest = df_final[df_final['Destino'] == destino]
                     df_dest[cols].to_excel(writer, index=False, sheet_name=nome_aba)
             
-            st.success(f"✅ Conversão concluída! Stussy configurada para ler sempre a primeira aba.")
+            st.success(f"✅ Conversão concluída! Prioridade dada à aba 'Sheet1'.")
             st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
             st.warning("Nenhum dado encontrado.")
