@@ -61,9 +61,11 @@ def parse_size_line(line: str) -> list:
 # Devolve dict: {(code, color): unit_price}
 # ===========================================================================
 def parse_prices_pdf(pdf_file) -> dict:
+    # {(code, color): {"unit_price": float, "designation": str}}
     prices = {}
-    current_code  = ""
-    current_sizes = []
+    current_code        = ""
+    current_designation = ""
+    current_sizes       = []
 
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -80,9 +82,12 @@ def parse_prices_pdf(pdf_file) -> dict:
                     current_sizes = parse_size_line(line)
                     continue
 
-                # Linha de modelo
+                # Linha de modelo — guarda código e nome completo antes do código
                 if MODEL_RE.search(line):
                     current_code = extract_code(line)
+                    # Nome completo: tudo antes do código, ex: "SORIN SNW - 1868 MICRO RIB" → "SORIN SNW-1868"
+                    name_part = re.split(r"(SNW|SNM|SN)\s*-\s*\d+", line, flags=re.I)[0].strip()
+                    current_designation = f"{name_part} {current_code}".strip()
                     continue
 
                 # Linha de preço (contém €) — ignora linhas de totais gerais
@@ -100,7 +105,10 @@ def parse_prices_pdf(pdf_file) -> dict:
                         and len(t) > 1
                     ]
                     color = " ".join(color_tokens[-2:]).upper()
-                    prices[(current_code, color)] = unit_price
+                    prices[(current_code, color)] = {
+                        "unit_price":   unit_price,
+                        "designation":  current_designation,
+                    }
 
     return prices
 
@@ -203,14 +211,17 @@ def merge_sn(qty_rows: list, prices: dict) -> list:
     unmatched = set()
 
     for r in qty_rows:
-        key = (r["code"], r["color"])
-        unit_price = prices.get(key, 0)
+        key       = (r["code"], r["color"])
+        price_obj = prices.get(key, {})
+        unit_price   = price_obj.get("unit_price", 0)
+        designation  = price_obj.get("designation", r["model"])
+
         if unit_price == 0:
             unmatched.add(key)
 
         final.append({
             "Reference":           "",
-            "Designation":         r["model"],
+            "Designation":         designation,
             "Qty":                 r["qty"],
             "Unit Price":          unit_price,
             "Unit Price Currency": 0,
