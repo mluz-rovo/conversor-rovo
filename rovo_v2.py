@@ -62,6 +62,7 @@ def parse_quantities_pdf(pdf_source):
     current_code  = ""
     current_model = ""
     current_sizes = []
+    log = []
 
     with pdfplumber.open(pdf_source) as pdf:
         for page in pdf.pages:
@@ -73,7 +74,6 @@ def parse_quantities_pdf(pdf_source):
                 if not l_up:
                     continue
 
-                # 1. DESTINO via SHIP TO
                 if l_up.startswith("SHIP TO"):
                     dest_raw = re.sub(r"^SHIP\s+TO\s*", "", line, flags=re.I)
                     dest_raw = re.sub(r"Ship\s+To:.*$", "", dest_raw, flags=re.I).strip()
@@ -83,9 +83,9 @@ def parse_quantities_pdf(pdf_source):
                         dest_raw = lines[idx + 1].strip()
                     if dest_raw:
                         current_dest = dest_raw
+                    log.append(f"DEST={current_dest}")
                     continue
 
-                # 2. DESTINO via "ROVO - ARAUJO IRMAOS <local>"
                 if l_up.startswith("ROVO -") or l_up.startswith("ROVO–"):
                     parts = line.strip().split()
                     try:
@@ -93,47 +93,49 @@ def parse_quantities_pdf(pdf_source):
                         current_dest = " ".join(parts[irmaos_idx + 1:]).strip()
                     except ValueError:
                         current_dest = " ".join(parts[-2:]).strip()
+                    log.append(f"DEST(ROVO)={current_dest}")
                     continue
 
-                # 3. MODELO
                 if MODEL_RE.search(line):
                     current_code  = extract_code(line)
                     current_model = re.split(r"\s+Qty\b", line, flags=re.I)[0].strip()
                     current_sizes = []
+                    log.append(f"MODEL={current_code}")
                     continue
 
-                # 4. TAMANHOS — UK/IT ou standard (XS, S, M, L...)
                 is_uk  = any(k in l_up for k in SIZE_IT_KEYS)
                 is_std = any(f" {s} " in f" {l_up} " for s in SIZE_REFS_STD)
 
                 if is_uk:
                     raw = re.sub(r"\s+", "", line.upper())
                     current_sizes = re.findall(r"UK\d+/IT\d+", raw)
+                    log.append(f"SIZES(UK)={current_sizes}")
                     continue
                 elif is_std and not MODEL_RE.search(line):
                     current_sizes = parse_size_line_std(line)
+                    log.append(f"SIZES(STD)={current_sizes}")
                     continue
 
-                # 5. SKIP totais
                 if any(skip in l_up for skip in SKIP_LINES):
+                    log.append(f"SKIP={repr(line[:40])}")
                     continue
 
-                # 6. QUANTIDADES
                 if not current_code or not current_sizes:
+                    log.append(f"NOSTATE={repr(line[:40])}")
                     continue
 
                 first_word = l_up.split()[0] if l_up.split() else ""
                 if first_word not in PRODUCT_WORDS:
+                    log.append(f"NOTPROD({first_word})={repr(line[:40])}")
                     continue
 
                 before_euro = line.split("€")[0] if "€" in line else line
                 normalized  = re.sub(r"(?<!\w)[-–](?!\w)", "0", before_euro)
                 nums = re.findall(r"\b(\d+)\b", normalized)
                 if not nums:
+                    log.append(f"NONUMS={repr(line[:40])}")
                     continue
-                qty_values = [int(n) for n in nums]
-                qty_values = qty_values[:-1]                    # remove total
-                qty_values = qty_values[:len(current_sizes)]    # trunca ao nº de tamanhos
+                qty_values = [int(n) for n in nums][:-1][:len(current_sizes)]
                 if not qty_values:
                     continue
 
@@ -145,6 +147,7 @@ def parse_quantities_pdf(pdf_source):
                     and len(t) > 1
                 ]
                 color = " ".join(color_tokens[-2:]).upper() if color_tokens else ""
+                log.append(f"QTYLINE color={color!r} nums={qty_values} | {repr(line[:50])}")
                 if not color:
                     continue
 
@@ -158,6 +161,10 @@ def parse_quantities_pdf(pdf_source):
                             "qty":         qty_values[i],
                             "destination": current_dest,
                         })
+
+    with st.expander("🐛 Debug linha a linha", expanded=True):
+        for entry in log:
+            st.text(entry)
 
     return rows
 
@@ -279,8 +286,6 @@ elif client == "Studio Nicholson":
         try:
             file_bytes = uploaded_file.read()
             qty_rows   = parse_quantities_pdf(io.BytesIO(file_bytes))
-            st.write(f"qty_rows len: {len(qty_rows)}")
-            st.write(qty_rows[:3])
             if qty_rows:
                 st.session_state["sn_rows"] = qty_rows
             elif "sn_rows" not in st.session_state:
