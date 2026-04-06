@@ -31,8 +31,9 @@ if arquivo:
         if arquivo.name.endswith('.xlsx'):
             xl = pd.ExcelFile(arquivo, engine='openpyxl')
             
-            # --- LÓGICA STUSSY ---
+            # --- LÓGICA STUSSY (Sempre a 1ª Folha) ---
             if cliente == "Stussy":
+                # xl.sheet_names[0] garante que pega na primeira aba, não importa o nome
                 df = xl.parse(xl.sheet_names[0], header=None)
                 for i, row in df.iloc[1:].iterrows():
                     if len(row) >= 14:
@@ -149,7 +150,6 @@ if arquivo:
         # --- GERAÇÃO FINAL ---
         if lista_dados:
             df_final = pd.DataFrame(lista_dados).drop_duplicates()
-            # Colunas com o novo nome "Nr. CPO"
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'Nr. CPO', 'Nr. SPO', 'Valor Unit. Supplier', 'Total Supplier']
             
             out = io.BytesIO()
@@ -159,7 +159,7 @@ if arquivo:
                     df_dest = df_final[df_final['Destino'] == destino]
                     df_dest[cols].to_excel(writer, index=False, sheet_name=nome_aba)
             
-            st.success(f"✅ Done!")
+            st.success(f"✅ Conversão concluída! Stussy configurada para ler sempre a primeira aba.")
             st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
             st.warning("Nenhum dado encontrado.")
