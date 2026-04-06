@@ -142,6 +142,11 @@ def parse_quantities_pdf(pdf_file) -> list:
     return rows
 
 
+@st.cache_data
+def cached_parse(file_bytes: bytes) -> list:
+    import io as _io
+    return parse_quantities_pdf(_io.BytesIO(file_bytes))
+
 # ===========================================================================
 # COLUNAS FINAIS
 # ===========================================================================
