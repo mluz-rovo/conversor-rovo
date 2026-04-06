@@ -28,12 +28,11 @@ uploaded_file = st.file_uploader("Upload file", type=file_format)
 # ===========================================================================
 # STUDIO NICHOLSON — CONSTANTES
 # ===========================================================================
-SIZE_REFS   = ["XXS", "XS", "S", "M", "L", "XL", "XXL",
-               "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-SKIP_LINES  = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COST TOTAL"]
+SIZE_REFS      = ["XXS", "XS", "S", "M", "L", "XL", "XXL",
+                  "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
+SKIP_LINES     = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COST TOTAL"]
 MODEL_PREFIXES = ["SNW -", "SNM -", "SN -", "LAY "]
-# Palavras a remover para isolar a cor
-COLOR_JUNK = {
+COLOR_JUNK     = {
     "JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY",
     "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL",
     "FIRST", "MAKE", "-", "–"
@@ -44,14 +43,6 @@ COLOR_JUNK = {
 # PASS 1 — Extração fiel do PDF em eventos
 # ---------------------------------------------------------------------------
 def sn_extract_raw(pdf_file) -> list:
-    """
-    Percorre cada página e devolve uma lista de eventos:
-      {'type': 'destination', 'dest': str}
-      {'type': 'model',       'model': str}
-      {'type': 'price_row',   'color': str, 'unit_price': float,
-                               'size_quantities': {size: qty}}
-    Sem lógica de negócio — só extração.
-    """
     events = []
 
     with pdfplumber.open(pdf_file) as pdf:
@@ -63,52 +54,50 @@ def sn_extract_raw(pdf_file) -> list:
             if "Ship To:" in text:
                 after      = text.split("Ship To:", 1)[1]
                 dest_lines = [l.strip() for l in after.split("\n") if l.strip()]
-                # Ignora linhas administrativas (Docket, Payment, Order, etc.)
                 skip_dest  = re.compile(
                     r"docket|payment|terms|order|season|ref|po\s*#|date",
                     re.IGNORECASE
                 )
-                dest_line  = next(
+                dest_line = next(
                     (l for l in dest_lines if not skip_dest.search(l)), None
                 )
                 if dest_line:
-                    # Se a linha contiver " - " é provável que seja "Empresa - Armazém"
-                    # Ficamos com a parte após o último " - "
                     if " - " in dest_line:
                         dest_line = dest_line.split(" - ")[-1].strip()
                     events.append({"type": "destination", "dest": dest_line})
 
-            # Mapa de tamanhos nesta página
-            size_map = _build_size_map(words)
-
             # Percorre linhas
-            for i, line in enumerate(lines):
+            current_sizes = []  # lista de strings, ex: ["XS","S","M","L","XL","XXL"]
+            for line in lines:
                 l_up = line.upper().strip()
                 if not l_up or any(skip in l_up for skip in SKIP_LINES):
                     continue
 
-                # Linha de modelo
+                # Linha de modelo — extrai tamanhos presentes nessa linha
                 if any(l_up.startswith(pfx.upper()) for pfx in MODEL_PREFIXES):
-                    # Corta na primeira referência a tamanho ou palavra de cabeçalho
                     size_pattern = r"\b(" + "|".join(SIZE_REFS) + r"|Qty|Cost|Total|First)\b"
                     model = re.split(size_pattern, line, flags=re.I)[0].strip()
                     events.append({"type": "model", "model": model})
+                    # Tamanhos pela ordem em que aparecem na linha
+                    current_sizes = [
+                        s for s in SIZE_REFS
+                        if re.search(r"\b" + s + r"\b", line, re.IGNORECASE)
+                    ]
                     continue
 
                 # Linha de preço/cor (contém €)
                 if "€" in line:
-                    ev = _parse_price_row(line, size_map)
+                    ev = _parse_price_row(line, current_sizes)
                     if ev:
                         events.append(ev)
 
     return events
 
 
-
 def _parse_price_row(line: str, sizes: list) -> dict | None:
     """
     Formato: 'JERSEY - BRANDED BOXY FIT T-SHIRT BLACK – 6 11 10 7 1 35 € 13.95 € 488.25'
-    sizes: lista ordenada de tamanhos do cabeçalho, ex: ["XS","S","M","L","XL","XXL"]
+    sizes: lista ordenada de strings, ex: ["XS","S","M","L","XL","XXL"]
     """
     if "€" not in line or not sizes:
         return None
@@ -161,10 +150,6 @@ def _parse_price_row(line: str, sizes: list) -> dict | None:
 # PASS 2 — Transforma eventos em linhas finais
 # ---------------------------------------------------------------------------
 def sn_transform(events: list) -> list:
-    """
-    Máquina de estados simples: rastreia destino e modelo actuais
-    e produz as linhas planas finais.
-    """
     rows = []
     current_dest  = "See PDF"
     current_model = ""
@@ -197,7 +182,7 @@ def sn_transform(events: list) -> list:
 
 
 # ---------------------------------------------------------------------------
-# DEBUG — painel colapsável com os eventos brutos (remover em produção)
+# DEBUG
 # ---------------------------------------------------------------------------
 def show_debug(events: list):
     with st.expander("🔍 Debug: Eventos extraídos (Pass 1)", expanded=False):
@@ -205,14 +190,13 @@ def show_debug(events: list):
             st.write(f"**{i}** — `{ev['type']}`", ev)
 
 def show_raw_lines(pdf_file):
-    """Mostra todas as linhas cruas de cada página para diagnóstico."""
     with st.expander("🔬 Debug: Linhas cruas do PDF", expanded=True):
         with pdfplumber.open(pdf_file) as pdf:
             for p_num, page in enumerate(pdf.pages):
                 text = page.extract_text() or ""
                 st.markdown(f"**Página {p_num + 1}**")
                 for i, line in enumerate(text.split("\n")):
-                    has_price = any(c in line for c in ["€", "\u20ac", "EUR"])
+                    has_price = "€" in line or "EUR" in line
                     if has_price or any(pfx.upper() in line.upper() for pfx in MODEL_PREFIXES):
                         st.code(f"[{i}] {repr(line)}")
 
@@ -232,16 +216,12 @@ if uploaded_file:
 
             for i, row in df.iloc[1:].iterrows():
                 if len(row) >= 18:
-                    q_raw = row[12]   # Coluna M — Qty
-                    p_raw = row[17]   # Coluna R — Unit Price Currency
+                    q_raw = row[12]   # Coluna M
+                    p_raw = row[17]   # Coluna R
 
                     q = pd.to_numeric(q_raw, errors="coerce")
-
                     if isinstance(p_raw, str):
-                        p = pd.to_numeric(
-                            re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")),
-                            errors="coerce"
-                        )
+                        p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
                     else:
                         p = pd.to_numeric(p_raw, errors="coerce")
 
@@ -249,15 +229,15 @@ if uploaded_file:
                         p_val = p if pd.notna(p) else 0
                         data_list.append({
                             "Reference":           "",
-                            "Designation":         row[8] if len(row) > 8 else "",   # Col I
+                            "Designation":         row[8] if len(row) > 8 else "",
                             "Qty":                 q,
                             "Unit Price":          0,
                             "Unit Price Currency": p_val,
                             "VAT Table":           4,
-                            "Color":               row[7] if len(row) > 7 else "",   # Col H
-                            "Size":                row[9] if len(row) > 9 else "",   # Col J
+                            "Color":               row[7] if len(row) > 7 else "",
+                            "Size":                row[9] if len(row) > 9 else "",
                             "TOTAL":               q * p_val,
-                            "Destination":         row[4] if len(row) > 4 else "General",  # Col E
+                            "Destination":         row[4] if len(row) > 4 else "General",
                             "CPO No.":             "",
                             "SPO No.":             "",
                             "Supplier Unit Value": "",
