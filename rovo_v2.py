@@ -306,7 +306,6 @@ if uploaded_file:
         # ── STUDIO NICHOLSON ─────────────────────────────────────────────────
         elif uploaded_file.name.endswith(".pdf") and client == "Studio Nicholson":
             events    = sn_extract_raw(uploaded_file)
-            show_debug(events)          # ← remove quando estiver estável
             data_list = sn_transform(events)
 
         # ── OUTPUT ───────────────────────────────────────────────────────────
@@ -329,11 +328,9 @@ if uploaded_file:
                     )
 
             st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
-            st.dataframe(df_final[cols].head(50))
             st.download_button("⬇️ Download PHC Excel", out.getvalue(), f"IMPORT_{client}.xlsx")
         else:
             st.warning("Nenhum dado válido encontrado. Verifica o ficheiro.")
 
     except Exception as e:
         st.error(f"Erro: {e}")
-        st.exception(e)   # traceback completo — remove em produção
