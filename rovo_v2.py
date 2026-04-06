@@ -253,63 +253,60 @@ elif client == "Studio Nicholson":
     if uploaded_file:
         try:
             uploaded_file.seek(0)
-            st.session_state["sn_qty_rows"] = parse_quantities_pdf(uploaded_file)
-        except Exception as e:
-            st.error(f"Erro ao ler PDF: {e}")
-            st.exception(e)
+            qty_rows = parse_quantities_pdf(uploaded_file)
 
-    if st.session_state.get("sn_qty_rows"):
-        qty_rows = st.session_state["sn_qty_rows"]
-        models   = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
+            if not qty_rows:
+                st.warning("Nenhum dado encontrado no PDF.")
+            else:
+                models = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
 
-        st.subheader("💶 Introduz o preço unitário por modelo")
-        price_map = {}
-        cols_ui   = st.columns(min(len(models), 3))
-        for i, (code, model_name) in enumerate(models):
-            with cols_ui[i % 3]:
-                price = st.number_input(
-                    f"{code}",
-                    min_value=0.0,
-                    step=0.01,
-                    format="%.2f",
-                    key=f"price_{code}",
-                    help=model_name,
-                )
-                price_map[code] = price
-
-        if st.button("✅ Gerar Excel", type="primary"):
-            try:
-                data_list = []
-                for r in qty_rows:
-                    unit_price = price_map.get(r["code"], 0)
-                    data_list.append({
-                        "Reference":           "",
-                        "Designation":         r["model"],
-                        "Qty":                 r["qty"],
-                        "Unit Price":          unit_price,
-                        "Unit Price Currency": 0,
-                        "VAT Table":           4,
-                        "Color":               r["color"],
-                        "Size":                r["size"],
-                        "TOTAL":               r["qty"] * unit_price,
-                        "Destination":         r["destination"],
-                        "CPO No.":             "",
-                        "SPO No.":             "",
-                        "Supplier Unit Value": "",
-                        "Total Supplier":      "",
-                    })
-
-                df_final = pd.DataFrame(data_list).drop_duplicates()
-                out = io.BytesIO()
-                with pd.ExcelWriter(out, engine="openpyxl") as writer:
-                    for dest in df_final["Destination"].unique():
-                        safe_name = re.sub(r"[\[\]*:?/\\]", "", str(dest))[:31]
-                        df_final[df_final["Destination"] == dest][cols].to_excel(
-                            writer, index=False, sheet_name=safe_name
+                st.subheader("💶 Introduz o preço unitário por modelo")
+                price_map = {}
+                cols_ui   = st.columns(min(len(models), 3))
+                for i, (code, model_name) in enumerate(models):
+                    with cols_ui[i % 3]:
+                        price = st.number_input(
+                            f"{code}",
+                            min_value=0.0,
+                            step=0.01,
+                            format="%.2f",
+                            key=f"price_{code}",
+                            help=model_name,
                         )
-                st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
-                st.download_button("⬇️ Download PHC Excel", out.getvalue(), "IMPORT_StudioNicholson.xlsx")
+                        price_map[code] = price
 
-            except Exception as e:
-                st.error(f"Erro ao gerar Excel: {e}")
-                st.exception(e)
+                if st.button("✅ Gerar Excel", type="primary"):
+                    data_list = []
+                    for r in qty_rows:
+                        unit_price = price_map.get(r["code"], 0)
+                        data_list.append({
+                            "Reference":           "",
+                            "Designation":         r["model"],
+                            "Qty":                 r["qty"],
+                            "Unit Price":          unit_price,
+                            "Unit Price Currency": 0,
+                            "VAT Table":           4,
+                            "Color":               r["color"],
+                            "Size":                r["size"],
+                            "TOTAL":               r["qty"] * unit_price,
+                            "Destination":         r["destination"],
+                            "CPO No.":             "",
+                            "SPO No.":             "",
+                            "Supplier Unit Value": "",
+                            "Total Supplier":      "",
+                        })
+
+                    df_final = pd.DataFrame(data_list).drop_duplicates()
+                    out = io.BytesIO()
+                    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+                        for dest in df_final["Destination"].unique():
+                            safe_name = re.sub(r"[\[\]*:?/\\]", "", str(dest))[:31]
+                            df_final[df_final["Destination"] == dest][cols].to_excel(
+                                writer, index=False, sheet_name=safe_name
+                            )
+                    st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
+                    st.download_button("⬇️ Download PHC Excel", out.getvalue(), "IMPORT_StudioNicholson.xlsx")
+
+        except Exception as e:
+            st.error(f"Erro: {e}")
+            st.exception(e)
