@@ -58,7 +58,7 @@ if arquivo:
                                 'CPO': ""
                             })
 
-            # --- LÓGICA SUPREME (USANDO INPUTS DO SIDEBAR) ---
+            # --- LÓGICA SUPREME ---
             elif cliente == "Supreme":
                 for aba in xl.sheet_names:
                     if "TOTAL" in aba.upper(): continue
@@ -94,8 +94,8 @@ if arquivo:
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
                 lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST", "MAKE"]
-                mod_ Nicholson = ""
-                dest_ Nicholson = "Ver PDF"
+                modelo_nicholson = ""
+                destino_nicholson = "Ver PDF"
                 for page in pdf.pages:
                     palavras = page.extract_words()
                     texto = page.extract_text()
@@ -104,7 +104,7 @@ if arquivo:
                     ship_match = re.search(r"Ship To:\s*(.*)", texto, re.IGNORECASE)
                     if ship_match:
                         linhas_ship = texto.split("Ship To:")[1].split('\n')
-                        dest_ Nicholson = linhas_ship[1].strip() if len(linhas_ship) > 1 else dest_ Nicholson
+                        destino_nicholson = linhas_ship[1].strip() if len(linhas_ship) > 1 else destino_nicholson
                     mapa_tams = []
                     x_max = 0
                     for p in palavras:
@@ -116,7 +116,7 @@ if arquivo:
                         l_up = linha.upper()
                         if any(x in l_up for x in ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL"]): continue
                         if any(x in l_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
-                            mod_ Nicholson = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
+                            modelo_nicholson = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
                             continue
                         if "€" in linha:
                             pts = linha.split()
@@ -132,7 +132,7 @@ if arquivo:
                                         if p_doc['text'].isdigit() and p_doc['x1'] <= (x_max + 10):
                                             q_num = int(p_doc['text'])
                                             if q_num > 0:
-                                                lista_dados.append({'Referência': "", 'Designação': mod_ Nicholson, 'Quant.': q_num, 'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 'Cor': cor_final, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 'Destino': dest_ Nicholson, 'CPO': ""})
+                                                lista_dados.append({'Referência': "", 'Designação': modelo_nicholson, 'Quant.': q_num, 'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 'Cor': cor_final, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 'Destino': destino_nicholson, 'CPO': ""})
 
         # --- GERAÇÃO FINAL ---
         if lista_dados:
