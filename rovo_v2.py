@@ -131,10 +131,13 @@ def _parse_price_row(line: str, sizes: list) -> dict | None:
     qty_values = qty_values[:-1]
 
     # Associar pela ordem dos tamanhos
+    # Se há menos qtds que tamanhos, alinha pela direita (zeros à esquerda omitidos)
     size_quantities = {}
+    offset = len(sizes) - len(qty_values)
     for i, size in enumerate(sizes):
-        if i < len(qty_values) and qty_values[i] > 0:
-            size_quantities[size] = qty_values[i]
+        idx = i - offset
+        if idx >= 0 and qty_values[idx] > 0:
+            size_quantities[size] = qty_values[idx]
 
     if not size_quantities:
         return None
