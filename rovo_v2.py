@@ -55,7 +55,7 @@ if arquivo:
                                 'Tamanho': row[9] if len(row) > 9 else "", 
                                 'TOTAL': q * (p if pd.notna(p) else 0), 
                                 'Destino': row[4] if len(row) > 4 else "Geral", 
-                                'CPO': "",
+                                'Nr. CPO': "",
                                 'Nr. SPO': "",
                                 'Valor Unit. Supplier': "",
                                 'Total Supplier': ""
