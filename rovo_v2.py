@@ -126,10 +126,17 @@ def parse_quantities_pdf(pdf_file) -> list:
                 if not color or not qty_values:
                     continue
 
-                offset = len(current_sizes) - len(qty_values)
-                for i, size in enumerate(current_sizes):
-                    idx = i - offset
-                    if idx >= 0 and qty_values[idx] > 0:
+                # Substitui - por 0 antes de contar
+# Associa diretamente por posição
+before_euro = line.split("€")[0] if "€" in line else line
+normalized  = re.sub(r"(?<!\w)[-–](?!\w)", "0", before_euro)
+nums = re.findall(r"\b(\d+)\b", normalized)
+qty_values = [int(n) for n in nums]
+if len(qty_values) > len(current_sizes):
+    qty_values = qty_values[:len(current_sizes)]
+
+for i, size in enumerate(current_sizes):
+    if i < len(qty_values) and qty_values[i] > 0::
                         rows.append({
                             "code":        current_code,
                             "model":       current_model,
