@@ -332,12 +332,26 @@ try:
             qty_rows  = parse_quantities_pdf(pdf_qty)
             data_list = merge_sn(qty_rows, prices)
 
-        if prices:
-            with st.expander("🔍 Debug: Preços extraídos", expanded=False):
-                st.write(prices)
-        if qty_rows:
-            with st.expander("🔍 Debug: Quantidades extraídas", expanded=False):
-                st.write(qty_rows[:20])
+        with st.expander("🔍 Debug: Preços extraídos", expanded=True):
+            st.write(f"Total chaves: {len(prices)}")
+            st.write(prices)
+        with st.expander("🔍 Debug: Quantidades extraídas", expanded=True):
+            st.write(f"Total linhas: {len(qty_rows)}")
+            st.write(qty_rows[:30])
+        with st.expander("🔬 Debug: Linhas cruas PDF Preços", expanded=True):
+            with pdfplumber.open(pdf_prices) as pdf:
+                for p_num, page in enumerate(pdf.pages):
+                    text = page.extract_text() or ""
+                    st.markdown(f"**Página {p_num + 1}**")
+                    for i, line in enumerate(text.split("\n")):
+                        st.code(f"[{i}] {repr(line)}")
+        with st.expander("🔬 Debug: Linhas cruas PDF Quantidades", expanded=True):
+            with pdfplumber.open(pdf_qty) as pdf:
+                for p_num, page in enumerate(pdf.pages):
+                    text = page.extract_text() or ""
+                    st.markdown(f"**Página {p_num + 1}**")
+                    for i, line in enumerate(text.split("\n")):
+                        st.code(f"[{i}] {repr(line)}")
 
     # ── OUTPUT ───────────────────────────────────────────────────────────
     if data_list:
