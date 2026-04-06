@@ -108,9 +108,15 @@ def parse_quantities_pdf(pdf_file) -> list:
 
                 # Quantidades: números entre a cor e o €
                 before_euro = line.split("€")[0] if "€" in line else line
-                normalized  = re.sub(r"(?<!\w)[-–](?!\w)", " ", before_euro)
+                # Substitui - e – isolados por 0 (podem estar em qualquer posição)
+                normalized  = re.sub(r"(?<!\w)[-–](?!\w)", "0", before_euro)
                 nums = re.findall(r"\b(\d+)\b", normalized)
-                qty_values = [int(n) for n in nums][:-1] if len(nums) > 1 else [int(n) for n in nums]
+                # Remove o total (último número) se houver mais que os tamanhos
+                qty_values = [int(n) for n in nums]
+                if len(qty_values) > len(current_sizes):
+                    qty_values = qty_values[:len(current_sizes)]
+                if not qty_values:
+                    continue
 
                 # Cor: última(s) palavra(s) antes dos números
                 before_nums = re.split(r"\s+\d", normalized)[0]
@@ -126,16 +132,15 @@ def parse_quantities_pdf(pdf_file) -> list:
                 if not color or not qty_values:
                     continue
 
-                offset = len(current_sizes) - len(qty_values)
+                # Associa diretamente por posição, sem offset
                 for i, size in enumerate(current_sizes):
-                    idx = i - offset
-                    if idx >= 0 and qty_values[idx] > 0:
+                    if i < len(qty_values) and qty_values[i] > 0:
                         rows.append({
                             "code":        current_code,
                             "model":       current_model,
                             "color":       color,
                             "size":        size,
-                            "qty":         qty_values[idx],
+                            "qty":         qty_values[i],
                             "destination": current_dest,
                         })
 
