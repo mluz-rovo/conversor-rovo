@@ -35,9 +35,7 @@ COLOR_JUNK = {
 MODEL_RE = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
 PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
 
-@st.cache_data
-def cached_parse(file_bytes: bytes) -> list:
-    return parse_quantities_pdf(io.BytesIO(file_bytes))
+
 
 
     m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
@@ -262,7 +260,7 @@ elif client == "Studio Nicholson":
     if uploaded_file:
         try:
             file_bytes = uploaded_file.read()
-            qty_rows   = cached_parse(file_bytes)
+            qty_rows   = parse_quantities_pdf(io.BytesIO(file_bytes))
 
             if not qty_rows:
                 st.warning("Nenhum dado encontrado no PDF.")
