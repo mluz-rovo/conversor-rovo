@@ -346,7 +346,7 @@ try:
 
         with st.expander("🔍 Debug: Preços extraídos", expanded=True):
             st.write(f"Total chaves: {len(prices)}")
-            st.write(prices)
+            st.write({f"{k[0]} | {k[1]}": v for k, v in prices.items()})
         with st.expander("🔍 Debug: Quantidades extraídas", expanded=True):
             st.write(f"Total linhas: {len(qty_rows)}")
             st.write(qty_rows[:30])
