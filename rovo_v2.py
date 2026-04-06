@@ -89,7 +89,7 @@ if arquivo:
                                         'Tamanho': t_nom, 
                                         'TOTAL': q * (p if pd.notna(p) else 0), 
                                         'Destino': dest, 
-                                        'CPO': "",
+                                        'Nr. CPO': "",
                                         'Nr. SPO': "",
                                         'Valor Unit. Supplier': "",
                                         'Total Supplier': ""
