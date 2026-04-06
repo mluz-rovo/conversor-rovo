@@ -116,20 +116,15 @@ def _build_size_map(words: list) -> list:
     return size_map
 
 
-def _parse_price_row(line: str, size_map: list) -> dict | None:
+def _parse_price_row(line: str, sizes: list) -> dict | None:
     """
-    Formato esperado:
-      'JERSEY - BRANDED BOXY FIT T-SHIRT BLACK – 6 11 10 7 1 35 € 13.95 € 488.25'
-    
-    Estrutura:
-      [descrição junk] [COR] – [qtds por tamanho] [total_qty] € [unit_price] € [total]
-    
-    Os tamanhos estão ordenados conforme size_map (extraído da linha de cabeçalho).
+    Formato: 'JERSEY - BRANDED BOXY FIT T-SHIRT BLACK – 6 11 10 7 1 35 € 13.95 € 488.25'
+    sizes: lista ordenada de tamanhos do cabeçalho, ex: ["XS","S","M","L","XL","XXL"]
     """
-    if "€" not in line:
+    if "€" not in line or not sizes:
         return None
 
-    # Preços: apanha todos os valores decimais após €
+    # Preço unitário — primeiro valor após €
     price_matches = re.findall(r"€\s*([\d,\.]+)", line)
     if not price_matches:
         return None
@@ -138,26 +133,24 @@ def _parse_price_row(line: str, size_map: list) -> dict | None:
     # Parte antes do primeiro €
     before_euro = line.split("€")[0].strip()
 
-    # Quantidades: todos os inteiros no final da parte antes do €
-    # O último número é o total_qty (ignorar), os anteriores são as qtds por tamanho
+    # Quantidades: todos os inteiros antes do €
     nums = re.findall(r"\b(\d+)\b", before_euro)
     if not nums:
         return None
-
     qty_values = [int(n) for n in nums]
-    # O último número é o total — removemos
+    # O último número é o total geral — ignorar
     qty_values = qty_values[:-1]
 
-    # Associar qtds aos tamanhos (pela ordem do size_map)
+    # Associar pela ordem dos tamanhos
     size_quantities = {}
-    for i, size_info in enumerate(size_map):
+    for i, size in enumerate(sizes):
         if i < len(qty_values) and qty_values[i] > 0:
-            size_quantities[size_info["size"]] = qty_values[i]
+            size_quantities[size] = qty_values[i]
 
     if not size_quantities:
         return None
 
-    # Cor: tokens antes dos números, excluindo junk words
+    # Cor: tokens antes dos números, excluindo junk
     before_nums = re.split(r"\s+\d", before_euro)[0]
     color_tokens = [
         t for t in before_nums.split()
@@ -165,7 +158,7 @@ def _parse_price_row(line: str, size_map: list) -> dict | None:
         and not re.match(r"^[\d.,]+$", t)
         and len(t) > 1
     ]
-    color = " ".join(color_tokens[-2:])  # últimas 2 palavras = cor
+    color = " ".join(color_tokens[-2:])
 
     return {
         "type": "price_row",
