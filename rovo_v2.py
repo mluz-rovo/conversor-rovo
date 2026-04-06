@@ -136,7 +136,7 @@ if len(qty_values) > len(current_sizes):
     qty_values = qty_values[:len(current_sizes)]
 
 for i, size in enumerate(current_sizes):
-    if i < len(qty_values) and qty_values[i] > 0::
+    if i < len(qty_values) and qty_values[i] > 0:
                         rows.append({
                             "code":        current_code,
                             "model":       current_model,
