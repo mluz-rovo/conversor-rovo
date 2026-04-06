@@ -176,7 +176,12 @@ if arquivo:
             pass  # Lógica Excel existente mantida aqui
 
         elif arquivo.name.endswith(".pdf") and cliente == "Studio Nicholson":
-            lista_dados = extract_studio_nicholson(arquivo)
+            with pdfplumber.open(arquivo) as pdf:
+            for i, page in enumerate(pdf.pages):
+            st.subheader(f"Página {i+1} — Texto")
+            st.text(page.extract_text())
+            st.subheader(f"Página {i+1} — Palavras")
+            st.write(page.extract_words())
 
         if lista_dados:
             cols = ["Referência", "Designação", "Quant.", "Pr.Unit.", "Pr.Unit.Moeda",
