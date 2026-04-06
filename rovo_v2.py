@@ -20,16 +20,13 @@ PRODUCT_PATTERN = re.compile(
 )
 
 SIZE_RE  = re.compile(r"UK(\d+)\s*/\s*IT\d+", re.IGNORECASE)
-SHIP_RE  = re.compile(r"Ship To:\s*(.+?)(?=Docket Number|$)", re.IGNORECASE | re.DOTALL)
+SHIP_RE  = re.compile(r"Ship To:\s*(.+?)(?=Bunschotenweg|Rua |Street|Avenue|Road|Docket Number)", re.IGNORECASE | re.DOTALL)
 
 
 def extract_ship_to(text):
-    m = SHIP_RE.search(text)
+    m = re.search(r"Ship To:\s*([\w\s\-]+?)(?=Bunschotenweg|Rua |Street|Avenue|Road|Docket)", text, re.IGNORECASE)
     if m:
-        # Primeira linha real após "Ship To:" — até ao primeiro separador
-        raw = m.group(1).strip()
-        primeira = raw.split("\n")[0].strip() if "\n" in raw else raw.split("  ")[0].strip()
-        return primeira if primeira else "Ver PDF"
+        return m.group(1).strip()
     return "Ver PDF"
 
 
