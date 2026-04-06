@@ -55,16 +55,23 @@ def parse_quantities_pdf(pdf_file) -> list:
             text  = page.extract_text() or ""
             lines = text.split("\n")
 
-            for line in lines:
+            for idx, line in enumerate(lines):
                 l_up = line.upper().strip()
                 if not l_up:
                     continue
 
                 # 1. DESTINO
                 if l_up.startswith("SHIP TO"):
+                    # Tenta extrair da mesma linha
                     dest_raw = re.sub(r"^SHIP\s+TO\s*", "", line, flags=re.I)
                     dest_raw = re.sub(r"Ship\s+To:.*$", "", dest_raw, flags=re.I).strip()
-                    current_dest = dest_raw.split(" - ")[-1].strip() if " - " in dest_raw else dest_raw
+                    if " - " in dest_raw:
+                        dest_raw = dest_raw.split(" - ")[-1].strip()
+                    # Se ficou vazio ou muito curto, usa a linha seguinte
+                    if len(dest_raw) < 3 and idx + 1 < len(lines):
+                        dest_raw = lines[idx + 1].strip()
+                    if dest_raw:
+                        current_dest = dest_raw
                     log.append(f"DEST → {current_dest}")
                     continue
 
