@@ -30,7 +30,7 @@ uploaded_file = st.file_uploader("Upload file", type=file_format)
 # ===========================================================================
 SIZE_REFS   = ["XXS", "XS", "S", "M", "L", "XL", "XXL",
                "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-SKIP_LINES  = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL QTY", "TOTAL COST"]
+SKIP_LINES  = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COST TOTAL"]
 MODEL_PREFIXES = ["SNW -", "SNM -", "SN -", "LAY "]
 # Palavras a remover para isolar a cor
 COLOR_JUNK = {
