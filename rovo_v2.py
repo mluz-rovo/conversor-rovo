@@ -31,7 +31,8 @@ SKIP_LINES     = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COS
 COLOR_JUNK     = {
     "JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY",
     "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL",
-    "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY", "SCOOP"
+    "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY", "SCOOP", "SLEEVE",
+    "PRODUCTION", "MADE", "LOCATION", "UNITED", "KINGDOM", "KOREA", "SOUTH"
 }
 # Regex para detectar linha de tamanhos colados ex: "UK4 / IT36UK6 / IT38..."
 SIZE_LINE_RE   = re.compile(r"UK\d+\s*/\s*IT\d+", re.IGNORECASE)
