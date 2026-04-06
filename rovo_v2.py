@@ -32,127 +32,25 @@ COLOR_JUNK = {
     "PRODUCTION", "MADE", "LOCATION", "UNITED", "KINGDOM", "KOREA", "SOUTH",
     "PRINTED", "REG", "OFFICE", "VAT", "PAGE"
 }
-MODEL_RE      = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
-PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
-SIZE_REFS_STD = ["XXS", "XS", "S", "M", "L", "XL", "XXL"]
-SIZE_IT_KEYS  = ["IT36", "IT38", "IT40", "IT42", "IT44", "IT46"]
+MODEL_RE = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
 
-
-# ===========================================================================
-# STUDIO NICHOLSON — FUNÇÕES
-# ===========================================================================
-def extract_code(text):
+def extract_code(text: str) -> str:
     m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
     return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper() if m else ""
 
 
-def parse_size_line_std(line):
-    seen, sizes = set(), []
-    for token in line.split():
-        t = token.upper().strip(".,")
-        if t in SIZE_REFS_STD and t not in seen:
-            sizes.append(t)
-            seen.add(t)
-    return sizes
-
-
 # ===========================================================================
-# STUDIO NICHOLSON — extração via Claude API
+# PDF DE QUANTIDADES — extração
 # ===========================================================================
-def extract_sn_with_claude(pdf_bytes: bytes) -> list:
-    import base64
-    import json
-
-    b64 = base64.standard_b64encode(pdf_bytes).decode("utf-8")
-
-    prompt = """Este PDF é um packing list da Studio Nicholson com encomendas de roupa.
-Extrai TODOS os produtos de TODAS as páginas e devolve APENAS um JSON válido (sem texto extra, sem markdown).
-
-Estrutura obrigatória:
-[
-  {
-    "destination": "nome do destino (ex: TU PACK, SAMSUNG, JAPAN)",
-    "code": "código do modelo (ex: SNM-1485, SNW-1965)",
-    "model": "nome completo do modelo (ex: KUYTO SNM - 1485 SOFT TOUCH JERSEY)",
-    "color": "cor (ex: BLACK, PARCHMENT, ESPRESSO)",
-    "sizes": {
-      "XS": 54,
-      "S": 136,
-      "M": 94,
-      "L": 38,
-      "XL": 26,
-      "XXL": 0,
-      "UK4/IT36": 36,
-      "UK6/IT38": 63
-    }
-  }
-]
-
-Regras:
-- O destino está no cabeçalho de cada página (ex: "SHIP TO UK WAREHOUSE - TU PACK" → "TU PACK", "SHIP TO JAPAN" → "JAPAN", "SHIP TO KOREA" → "KOREA")
-- Inclui todos os tamanhos presentes, mesmo que a quantidade seja 0 ou "-"
-- "-" significa 0
-- Não incluas totais, só tamanhos individuais
-- Devolve APENAS o JSON, sem mais nada"""
-
-    response = __import__("urllib.request", fromlist=["urlopen"]).urlopen(
-        __import__("urllib.request", fromlist=["Request"]).Request(
-            "https://api.anthropic.com/v1/messages",
-            data=json.dumps({
-                "model": "claude-sonnet-4-20250514",
-                "max_tokens": 4000,
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "document",
-                            "source": {
-                                "type": "base64",
-                                "media_type": "application/pdf",
-                                "data": b64
-                            }
-                        },
-                        {"type": "text", "text": prompt}
-                    ]
-                }]
-            }).encode(),
-            headers={"Content-Type": "application/json"},
-            method="POST"
-        )
-    )
-
-    data = json.loads(response.read())
-    raw  = data["content"][0]["text"].strip()
-    # Remove markdown se existir
-    raw  = re.sub(r"^```json\s*|^```\s*|```$", "", raw, flags=re.MULTILINE).strip()
-    items = json.loads(raw)
-
-    rows = []
-    for item in items:
-        dest  = item.get("destination", "See PDF")
-        code  = item.get("code", "")
-        model = item.get("model", "")
-        color = item.get("color", "")
-        for size, qty in item.get("sizes", {}).items():
-            if isinstance(qty, (int, float)) and qty > 0:
-                rows.append({
-                    "code":        code,
-                    "model":       model,
-                    "color":       color,
-                    "size":        size,
-                    "qty":         int(qty),
-                    "destination": dest,
-                })
-    return rows
-
-
+def parse_quantities_pdf(pdf_file) -> list:
     rows = []
     current_dest  = "See PDF"
     current_code  = ""
     current_model = ""
     current_sizes = []
+    log = []
 
-    with pdfplumber.open(pdf_source) as pdf:
+    with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
             text  = page.extract_text() or ""
             lines = text.split("\n")
@@ -162,72 +60,59 @@ Regras:
                 if not l_up:
                     continue
 
-                # 1. DESTINO via SHIP TO — usa sempre a linha seguinte
+                # 1. DESTINO
                 if l_up.startswith("SHIP TO"):
-                    if idx + 1 < len(lines):
-                        current_dest = lines[idx + 1].strip()
+                    # Tenta extrair da mesma linha
+                    dest_raw = re.sub(r"^SHIP\s+TO\s*", "", line, flags=re.I)
+                    dest_raw = re.sub(r"Ship\s+To:.*$", "", dest_raw, flags=re.I).strip()
+                    if " - " in dest_raw:
+                        dest_raw = dest_raw.split(" - ")[-1].strip()
+                    # Se ficou vazio ou muito curto, usa a linha seguinte
+                    if len(dest_raw) < 3 and idx + 1 < len(lines):
+                        dest_raw = lines[idx + 1].strip()
+                    if dest_raw:
+                        current_dest = dest_raw
+                    log.append(f"DEST → {current_dest}")
                     continue
 
-                # 2. DESTINO via "ROVO - ARAUJO IRMAOS <local>" (fallback)
-                if l_up.startswith("ROVO -") or l_up.startswith("ROVO–"):
-                    if not current_dest or current_dest == "See PDF":
-                        parts = line.strip().split()
-                        try:
-                            irmaos_idx = [p.upper() for p in parts].index("IRMAOS")
-                            current_dest = " ".join(parts[irmaos_idx + 1:]).strip()
-                        except ValueError:
-                            current_dest = " ".join(parts[-2:]).strip()
-                    continue
-
-                # 3. MODELO
+                # 2. MODELO
                 if MODEL_RE.search(line):
                     current_code  = extract_code(line)
                     current_model = re.split(r"\s+Qty\b", line, flags=re.I)[0].strip()
                     current_sizes = []
+                    log.append(f"MODEL → {current_code} | {current_model}")
                     continue
 
-                # 4. TAMANHOS — UK/IT ou standard (XS, S, M, L...)
-                is_uk  = any(k in l_up for k in SIZE_IT_KEYS)
-                is_std = any(f" {s} " in f" {l_up} " for s in SIZE_REFS_STD)
-
-                if is_uk:
+                # 3. TAMANHOS
+                if re.search(r"UK\s*\d+", line, re.IGNORECASE) and re.search(r"IT\s*\d+", line, re.IGNORECASE):
                     raw = re.sub(r"\s+", "", line.upper())
                     current_sizes = re.findall(r"UK\d+/IT\d+", raw)
-                    st.write(f"SIZES UK: {current_sizes} ← {repr(line[:60])}")
-                    continue
-                elif is_std and not MODEL_RE.search(line):
-                    current_sizes = parse_size_line_std(line)
-                    st.write(f"SIZES STD: {current_sizes} ← {repr(line[:60])}")
+                    log.append(f"SIZES → {current_sizes}")
                     continue
 
-                # 5. SKIP totais
+                # 4. SKIP totais
                 if any(skip in l_up for skip in SKIP_LINES):
-                    st.write(f"SKIP: {repr(line[:60])}")
+                    log.append(f"SKIP → {repr(line[:60])}")
                     continue
 
-                # 6. QUANTIDADES
+                # 5. QUANTIDADES
                 if not current_code or not current_sizes:
-                    st.write(f"NO STATE (code={current_code!r}, sizes={current_sizes}): {repr(line[:60])}")
+                    log.append(f"NO STATE → {repr(line[:60])}")
                     continue
 
+                PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
                 first_word = l_up.split()[0] if l_up.split() else ""
                 if first_word not in PRODUCT_WORDS:
-                    st.write(f"NOT PRODUCT ({first_word!r}): {repr(line[:60])}")
+                    log.append(f"NOT PRODUCT ({first_word!r}) → {repr(line[:60])}")
                     continue
 
-                st.write(f"✅ QTY LINE: {repr(line[:60])}")
-
+                # Quantidades: números entre a cor e o €
                 before_euro = line.split("€")[0] if "€" in line else line
-                normalized  = re.sub(r"(?<!\w)[-–](?!\w)", "0", before_euro)
+                normalized  = re.sub(r"(?<!\w)[-–](?!\w)", " ", before_euro)
                 nums = re.findall(r"\b(\d+)\b", normalized)
-                if not nums:
-                    continue
-                qty_values = [int(n) for n in nums]
-                qty_values = qty_values[:-1]                    # remove total
-                qty_values = qty_values[:len(current_sizes)]    # trunca ao nº de tamanhos
-                if not qty_values:
-                    continue
+                qty_values = [int(n) for n in nums][:-1] if len(nums) > 1 else [int(n) for n in nums]
 
+                # Cor: última(s) palavra(s) antes dos números
                 before_nums = re.split(r"\s+\d", normalized)[0]
                 color_tokens = [
                     t for t in before_nums.split()
@@ -236,25 +121,45 @@ Regras:
                     and len(t) > 1
                 ]
                 color = " ".join(color_tokens[-2:]).upper() if color_tokens else ""
-                if not color:
+                log.append(f"QTY LINE → color={color!r} nums={qty_values} | {repr(line[:60])}")
+
+                if not color or not qty_values:
                     continue
 
+                offset = len(current_sizes) - len(qty_values)
                 for i, size in enumerate(current_sizes):
-                    if i < len(qty_values) and qty_values[i] > 0:
+                    idx = i - offset
+                    if idx >= 0 and qty_values[idx] > 0:
                         rows.append({
                             "code":        current_code,
                             "model":       current_model,
                             "color":       color,
                             "size":        size,
-                            "qty":         qty_values[i],
+                            "qty":         qty_values[idx],
                             "destination": current_dest,
                         })
+
+    # Mostra log
+    with st.expander("🐛 Debug linha a linha", expanded=True):
+        for entry in log:
+            st.text(entry)
 
     return rows
 
 
 # ===========================================================================
-# COLUNAS FINAIS
+# UPLOADERS
+# ===========================================================================
+if client == "Studio Nicholson":
+    uploaded_file = st.file_uploader("Upload PDF Quantidades", type=["pdf"])
+    pdf_prices = None
+    pdf_qty    = None
+else:
+    uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
+
+
+# ===========================================================================
+# APP PRINCIPAL
 # ===========================================================================
 cols = [
     "Reference", "Designation", "Qty", "Unit Price",
@@ -263,147 +168,108 @@ cols = [
     "Supplier Unit Value", "Total Supplier",
 ]
 
+try:
+    data_list = []
 
-# ===========================================================================
-# STUSSY & SUPREME
-# ===========================================================================
-if client in ["Stussy", "Supreme"]:
-    uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
+    # ── STUSSY ──────────────────────────────────────────────────────────
+    if client == "Stussy" and uploaded_file:
+        xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
+        sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
+        df = xl.parse(sheet_name, header=None)
 
-    if uploaded_file:
-        try:
-            data_list = []
+        for i, row in df.iloc[1:].iterrows():
+            if len(row) >= 18:
+                q = pd.to_numeric(row[12], errors="coerce")
+                p_raw = row[17]
+                if isinstance(p_raw, str):
+                    p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
+                else:
+                    p = pd.to_numeric(p_raw, errors="coerce")
+                if q and q > 0:
+                    p_val = p if pd.notna(p) else 0
+                    data_list.append({
+                        "Reference":           "",
+                        "Designation":         row[8] if len(row) > 8 else "",
+                        "Qty":                 q,
+                        "Unit Price":          0,
+                        "Unit Price Currency": p_val,
+                        "VAT Table":           4,
+                        "Color":               row[7] if len(row) > 7 else "",
+                        "Size":                row[9] if len(row) > 9 else "",
+                        "TOTAL":               q * p_val,
+                        "Destination":         row[4] if len(row) > 4 else "General",
+                        "CPO No.":             "",
+                        "SPO No.":             "",
+                        "Supplier Unit Value": "",
+                        "Total Supplier":      "",
+                    })
 
-            if client == "Stussy":
-                xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-                sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
-                df = xl.parse(sheet_name, header=None)
-                for i, row in df.iloc[1:].iterrows():
-                    if len(row) >= 18:
-                        q = pd.to_numeric(row[12], errors="coerce")
-                        p_raw = row[17]
-                        if isinstance(p_raw, str):
-                            p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
-                        else:
-                            p = pd.to_numeric(p_raw, errors="coerce")
+    # ── SUPREME ─────────────────────────────────────────────────────────
+    elif client == "Supreme" and uploaded_file:
+        xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
+        for sheet in xl.sheet_names:
+            if "TOTAL" in sheet.upper():
+                continue
+            df = xl.parse(sheet, header=None)
+            sizes = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
+            for start in range(16, len(df), 14):
+                dest = str(df.iloc[start, 0]).strip()
+                if not dest or dest == "nan":
+                    dest = "General"
+                for i in range(start + 1, start + 13):
+                    if i >= len(df) or pd.isna(df.iloc[i, 6]):
+                        continue
+                    p = pd.to_numeric(df.iloc[i, 17], errors="coerce")
+                    for c_idx, s_name in sizes.items():
+                        q = pd.to_numeric(df.iloc[i, c_idx], errors="coerce")
                         if q and q > 0:
                             p_val = p if pd.notna(p) else 0
                             data_list.append({
-                                "Reference":           "",
-                                "Designation":         row[8] if len(row) > 8 else "",
+                                "Reference":           ref_manual,
+                                "Designation":         des_manual,
                                 "Qty":                 q,
                                 "Unit Price":          0,
                                 "Unit Price Currency": p_val,
                                 "VAT Table":           4,
-                                "Color":               row[7] if len(row) > 7 else "",
-                                "Size":                row[9] if len(row) > 9 else "",
+                                "Color":               df.iloc[i, 6],
+                                "Size":                s_name,
                                 "TOTAL":               q * p_val,
-                                "Destination":         row[4] if len(row) > 4 else "General",
+                                "Destination":         dest,
                                 "CPO No.":             "",
                                 "SPO No.":             "",
                                 "Supplier Unit Value": "",
                                 "Total Supplier":      "",
                             })
 
-            elif client == "Supreme":
-                xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-                for sheet in xl.sheet_names:
-                    if "TOTAL" in sheet.upper():
-                        continue
-                    df = xl.parse(sheet, header=None)
-                    sizes = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
-                    for start in range(16, len(df), 14):
-                        dest = str(df.iloc[start, 0]).strip()
-                        if not dest or dest == "nan":
-                            dest = "General"
-                        for i in range(start + 1, start + 13):
-                            if i >= len(df) or pd.isna(df.iloc[i, 6]):
-                                continue
-                            p = pd.to_numeric(df.iloc[i, 17], errors="coerce")
-                            for c_idx, s_name in sizes.items():
-                                q = pd.to_numeric(df.iloc[i, c_idx], errors="coerce")
-                                if q and q > 0:
-                                    p_val = p if pd.notna(p) else 0
-                                    data_list.append({
-                                        "Reference":           ref_manual,
-                                        "Designation":         des_manual,
-                                        "Qty":                 q,
-                                        "Unit Price":          0,
-                                        "Unit Price Currency": p_val,
-                                        "VAT Table":           4,
-                                        "Color":               df.iloc[i, 6],
-                                        "Size":                s_name,
-                                        "TOTAL":               q * p_val,
-                                        "Destination":         dest,
-                                        "CPO No.":             "",
-                                        "SPO No.":             "",
-                                        "Supplier Unit Value": "",
-                                        "Total Supplier":      "",
-                                    })
+    # ── STUDIO NICHOLSON ─────────────────────────────────────────────────
+    elif client == "Studio Nicholson" and uploaded_file:
+        uploaded_file.seek(0)
+        qty_rows = parse_quantities_pdf(uploaded_file)
 
-            if data_list:
-                df_final = pd.DataFrame(data_list).drop_duplicates()
-                out = io.BytesIO()
-                with pd.ExcelWriter(out, engine="openpyxl") as writer:
-                    for dest in df_final["Destination"].unique():
-                        safe_name = re.sub(r"[\[\]*:?/\\]", "", str(dest))[:31]
-                        df_final[df_final["Destination"] == dest][cols].to_excel(
-                            writer, index=False, sheet_name=safe_name
-                        )
-                st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
-                st.download_button("⬇️ Download PHC Excel", out.getvalue(), f"IMPORT_{client}.xlsx")
-            else:
-                st.warning("Nenhum dado válido encontrado. Verifica o ficheiro.")
+        with st.expander("🐛 Debug qty_rows", expanded=True):
+            st.write(f"Total linhas: {len(qty_rows)}")
+            st.write(qty_rows[:30])
 
-        except Exception as e:
-            st.error(f"Erro: {e}")
-            st.exception(e)
+        if qty_rows:
+            # Extrai modelos únicos para o utilizador introduzir preços
+            models = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
 
+            st.subheader("💶 Introduz o preço unitário por modelo")
+            price_map = {}
+            cols_ui = st.columns(min(len(models), 3))
+            for idx, (code, model_name) in enumerate(models):
+                with cols_ui[idx % 3]:
+                    price = st.number_input(
+                        f"{code}",
+                        min_value=0.0,
+                        step=0.01,
+                        format="%.2f",
+                        key=f"price_{code}",
+                        help=model_name,
+                    )
+                    price_map[code] = price
 
-# ===========================================================================
-# STUDIO NICHOLSON
-# ===========================================================================
-elif client == "Studio Nicholson":
-    uploaded_file = st.file_uploader("Upload PDF Quantidades", type=["pdf"])
-
-    if uploaded_file:
-        try:
-            file_bytes = uploaded_file.read()
-
-            with st.spinner("🤖 A interpretar o PDF com IA..."):
-                qty_rows = extract_sn_with_claude(file_bytes)
-
-            if qty_rows:
-                st.session_state["sn_rows"] = qty_rows
-                st.success(f"✅ {len(qty_rows)} linhas encontradas!")
-            elif "sn_rows" not in st.session_state:
-                st.warning("Nenhum dado encontrado no PDF.")
-        except Exception as e:
-            st.error(f"Erro: {e}")
-            st.exception(e)
-
-    if st.session_state.get("sn_rows"):
-        qty_rows = st.session_state["sn_rows"]
-        models   = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
-
-        st.subheader("💶 Introduz o preço unitário por modelo")
-        price_map = {}
-        cols_ui   = st.columns(min(len(models), 3))
-        for i, (code, model_name) in enumerate(models):
-            with cols_ui[i % 3]:
-                price = st.number_input(
-                    f"{code}",
-                    min_value=0.0,
-                    step=0.01,
-                    format="%.2f",
-                    key=f"price_{code}",
-                    help=model_name,
-                )
-                price_map[code] = price
-
-        if st.button("✅ Gerar Excel", type="primary"):
-            try:
-                data_list = []
+            if st.button("✅ Gerar Excel", type="primary"):
                 for r in qty_rows:
                     unit_price = price_map.get(r["code"], 0)
                     data_list.append({
@@ -423,23 +289,19 @@ elif client == "Studio Nicholson":
                         "Total Supplier":      "",
                     })
 
-                df_final = pd.DataFrame(data_list).drop_duplicates()
-                out = io.BytesIO()
-                with pd.ExcelWriter(out, engine="openpyxl") as writer:
-                    for dest in df_final["Destination"].unique():
-                        safe_name = re.sub(r"[\[\]*:?/\\]", "", str(dest))[:31]
-                        df_final[df_final["Destination"] == dest][cols].to_excel(
-                            writer, index=False, sheet_name=safe_name
-                        )
-                st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
-                st.session_state["sn_excel"] = out.getvalue()
-            except Exception as e:
-                st.error(f"Erro ao gerar Excel: {e}")
-                st.exception(e)
+    # ── OUTPUT ───────────────────────────────────────────────────────────
+    if data_list:
+        df_final = pd.DataFrame(data_list).drop_duplicates()
+        out = io.BytesIO()
+        with pd.ExcelWriter(out, engine="openpyxl") as writer:
+            for dest in df_final["Destination"].unique():
+                safe_name = re.sub(r"[\[\]*:?/\\]", "", str(dest))[:31]
+                df_final[df_final["Destination"] == dest][cols].to_excel(
+                    writer, index=False, sheet_name=safe_name
+                )
+        st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
+        st.download_button("⬇️ Download PHC Excel", out.getvalue(), f"IMPORT_{client}.xlsx")
 
-        if st.session_state.get("sn_excel"):
-            st.download_button(
-                "⬇️ Download PHC Excel",
-                st.session_state["sn_excel"],
-                "IMPORT_StudioNicholson.xlsx"
-            )
+except Exception as e:
+    st.error(f"Erro: {e}")
+    st.exception(e)
