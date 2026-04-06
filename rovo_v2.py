@@ -221,6 +221,10 @@ try:
         uploaded_file.seek(0)
         qty_rows = parse_quantities_pdf(uploaded_file)
 
+        with st.expander("🐛 Debug qty_rows", expanded=True):
+            st.write(f"Total linhas: {len(qty_rows)}")
+            st.write(qty_rows[:30])
+
         if qty_rows:
             # Extrai modelos únicos para o utilizador introduzir preços
             models = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
