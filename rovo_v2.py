@@ -29,7 +29,8 @@ COLOR_JUNK = {
     "JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY",
     "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL",
     "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY", "SCOOP",
-    "PRODUCTION", "MADE", "LOCATION", "UNITED", "KINGDOM", "KOREA", "SOUTH"
+    "PRODUCTION", "MADE", "LOCATION", "UNITED", "KINGDOM", "KOREA", "SOUTH",
+    "PRINTED", "REG", "OFFICE", "VAT", "PAGE"
 }
 MODEL_RE = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
 
@@ -82,8 +83,14 @@ def parse_quantities_pdf(pdf_file) -> list:
                 if any(skip in l_up for skip in SKIP_LINES):
                     continue
 
-                # 5. QUANTIDADES
+                # 5. QUANTIDADES — só linhas que começam com descrição de produto
                 if not current_code or not current_sizes:
+                    continue
+
+                # Linha de produto tem sempre "JERSEY" ou "KNIT" no início
+                PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
+                first_word = l_up.split()[0] if l_up.split() else ""
+                if first_word not in PRODUCT_WORDS:
                     continue
 
                 normalized = re.sub(r"(?<!\w)[-–](?!\w)", "0", line)
