@@ -350,13 +350,17 @@ try:
     # ── STUDIO NICHOLSON ─────────────────────────────────────────────────
     elif client == "Studio Nicholson" and pdf_prices and pdf_qty:
         with st.spinner("A processar PDFs..."):
+            pdf_prices.seek(0)
+            pdf_qty.seek(0)
             prices    = parse_prices_pdf(pdf_prices)
+            pdf_qty.seek(0)
             qty_rows  = parse_quantities_pdf(pdf_qty)
             data_list = merge_sn(qty_rows, prices)
 
         with st.expander("🐛 Debug interno parse_quantities", expanded=True):
             st.write("**Chamada à função OK**")
             debug_lines = []
+            pdf_qty.seek(0)
             with pdfplumber.open(pdf_qty) as pdf:
                 for p_num, page in enumerate(pdf.pages):
                     text = page.extract_text() or ""
