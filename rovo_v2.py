@@ -142,14 +142,15 @@ if arquivo:
                                                     'Referência': "", 'Designação': modelo_nicholson, 'Quant.': q_num, 
                                                     'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 
                                                     'Cor': cor_final, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 
-                                                    'Destino': destino_nicholson, 'CPO': "", 
+                                                    'Destino': destino_nicholson, 'Nr. CPO': "", 
                                                     'Nr. SPO': "", 'Valor Unit. Supplier': "", 'Total Supplier': ""
                                                 })
 
         # --- GERAÇÃO FINAL ---
         if lista_dados:
             df_final = pd.DataFrame(lista_dados).drop_duplicates()
-            cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO', 'Nr. SPO', 'Valor Unit. Supplier', 'Total Supplier']
+            # Colunas com o novo nome "Nr. CPO"
+            cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'Nr. CPO', 'Nr. SPO', 'Valor Unit. Supplier', 'Total Supplier']
             
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
@@ -158,7 +159,7 @@ if arquivo:
                     df_dest = df_final[df_final['Destino'] == destino]
                     df_dest[cols].to_excel(writer, index=False, sheet_name=nome_aba)
             
-            st.success(f"✅ Conversão concluída! Colunas de Supplier adicionadas e prontas a preencher.")
+            st.success(f"✅ Conversão concluída! Coluna 'Nr. CPO' atualizada.")
             st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
             st.warning("Nenhum dado encontrado.")
