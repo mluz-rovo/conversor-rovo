@@ -36,7 +36,19 @@ MODEL_RE = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
 PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
 
 
-def extract_code(text):
+SIZE_REFS_STD = ["XXS", "XS", "S", "M", "L", "XL", "XXL"]
+
+def parse_size_line_std(line):
+    """Extrai tamanhos standard (XS, S, M, L...) de uma linha de cabeçalho."""
+    seen, sizes = set(), []
+    for token in line.split():
+        t = token.upper().strip(".,")
+        if t in SIZE_REFS_STD and t not in seen:
+            sizes.append(t)
+            seen.add(t)
+    return sizes
+
+
     m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
     return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper() if m else ""
 
@@ -87,10 +99,16 @@ def parse_quantities_pdf(pdf_source):
                     current_sizes = []
                     continue
 
-                # 4. TAMANHOS
-                if re.search(r"UK\s*\d+", line, re.IGNORECASE) and re.search(r"IT\s*\d+", line, re.IGNORECASE):
+                # 4. TAMANHOS — UK/IT colados ou standard (XS, S, M, L...)
+                is_uk = any(x in l_up for x in ["IT36", "IT38", "IT40", "IT42", "IT44", "IT46"])
+                is_std = any(f" {s} " in f" {l_up} " for s in SIZE_REFS_STD)
+
+                if is_uk:
                     raw = re.sub(r"\s+", "", line.upper())
                     current_sizes = re.findall(r"UK\d+/IT\d+", raw)
+                    continue
+                elif is_std and MODEL_RE.search(line) is None:
+                    current_sizes = parse_size_line_std(line)
                     continue
 
                 # 5. SKIP totais
@@ -108,9 +126,13 @@ def parse_quantities_pdf(pdf_source):
                 before_euro = line.split("€")[0] if "€" in line else line
                 normalized  = re.sub(r"(?<!\w)[-–](?!\w)", "0", before_euro)
                 nums = re.findall(r"\b(\d+)\b", normalized)
+                if not nums:
+                    continue
                 qty_values = [int(n) for n in nums]
-                if len(qty_values) > len(current_sizes):
-                    qty_values = qty_values[:len(current_sizes)]
+                # Remove o último número (total geral)
+                qty_values = qty_values[:-1]
+                # Garante que não excede o número de tamanhos
+                qty_values = qty_values[:len(current_sizes)]
                 if not qty_values:
                     continue
 
