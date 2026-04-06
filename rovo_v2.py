@@ -34,27 +34,25 @@ COLOR_JUNK     = {
     "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY", "SCOOP", "SLEEVE",
     "PRODUCTION", "MADE", "LOCATION", "UNITED", "KINGDOM", "KOREA", "SOUTH"
 }
-# Regex para detectar linha de tamanhos colados ex: "UK4 / IT36UK6 / IT38..."
-SIZE_LINE_RE   = re.compile(r"UK\d+\s*/\s*IT\d+", re.IGNORECASE)
+# Regex para detectar linha de modelo — aceita hífen, travessão e espaços
+MODEL_RE       = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
+# Regex para detectar linha de tamanhos colados
+SIZE_LINE_RE   = re.compile(r"UK\s*\d+\s*/\s*IT\s*\d+", re.IGNORECASE)
 # Regex para separar tamanhos colados
-SIZE_SPLIT_RE  = re.compile(r"(UK\d+\s*/\s*IT\d+)", re.IGNORECASE)
-# Regex para detectar linha de modelo
-MODEL_RE       = re.compile(r"(SNW|SNM|SN)\s*-\s*\d+", re.IGNORECASE)
+SIZE_SPLIT_RE  = re.compile(r"(UK\s*\d+\s*/\s*IT\s*\d+)", re.IGNORECASE)
 
 def extract_code(text: str) -> str:
-    """Extrai o código de referência do modelo, ex: SNW-1868, SNM-1066."""
-    m = re.search(r"(S[NW]W?\s*-\s*\d+|SN\s*-\s*\d+)", text, re.IGNORECASE)
+    """Extrai o código de referência, ex: SNW-1868. Aceita hífen ou travessão."""
+    m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
     if m:
-        return re.sub(r"\s*-\s*", "-", m.group(1)).upper()
+        # Normaliza espaços e travessão para hífen simples
+        return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper()
     return ""
 
 def parse_size_line(line: str) -> list:
-    """
-    Separa uma linha de tamanhos colados como 'UK4 / IT36UK6 / IT38UK8 / IT40'
-    em ['UK4/IT36', 'UK6/IT38', 'UK8/IT40'].
-    """
+    """Separa tamanhos colados como 'UK4 / IT36UK6 / IT38' em ['UK4/IT36', 'UK6/IT38']."""
     parts = SIZE_SPLIT_RE.findall(line)
-    return [re.sub(r"\s*/\s*", "/", p).upper() for p in parts]
+    return [re.sub(r"\s*/\s*", "/", re.sub(r"\s+", "", p)).upper() for p in parts]
 
 
 # ===========================================================================
