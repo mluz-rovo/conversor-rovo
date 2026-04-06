@@ -354,9 +354,23 @@ try:
             qty_rows  = parse_quantities_pdf(pdf_qty)
             data_list = merge_sn(qty_rows, prices)
 
-        with st.expander("🔍 Debug: Preços extraídos", expanded=True):
-            st.write(f"Total chaves: {len(prices)}")
-            st.write({f"{k[0]} | {k[1]}": v for k, v in prices.items()})
+        with st.expander("🐛 Debug interno parse_quantities", expanded=True):
+            st.write("**Chamada à função OK**")
+            debug_lines = []
+            with pdfplumber.open(pdf_qty) as pdf:
+                for p_num, page in enumerate(pdf.pages):
+                    text = page.extract_text() or ""
+                    for i, line in enumerate(text.split("\n")):
+                        l_up = line.upper().strip()
+                        is_model = bool(MODEL_RE.search(line))
+                        is_size  = bool(SIZE_LINE_RE.search(line))
+                        is_ship  = l_up.startswith("SHIP TO")
+                        has_nums = bool(re.findall(r"\b\d+\b", line))
+                        debug_lines.append(
+                            f"p{p_num+1}[{i}] model={is_model} size={is_size} ship={is_ship} nums={has_nums} | {repr(line)[:80]}"
+                        )
+            for dl in debug_lines:
+                st.text(dl)
         with st.expander("🔍 Debug: Quantidades extraídas", expanded=True):
             st.write(f"Total linhas: {len(qty_rows)}")
             st.write(qty_rows[:30])
