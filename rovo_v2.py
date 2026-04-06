@@ -24,80 +24,22 @@ st.title(f"📦 Converter: {client}")
 # ===========================================================================
 # STUDIO NICHOLSON — CONSTANTES
 # ===========================================================================
-SIZE_REFS      = ["XXS", "XS", "S", "M", "L", "XL", "XXL",
-                  "UK4", "UK6", "UK8", "UK10", "UK12", "UK14",
-                  "UK4/IT36", "UK6/IT38", "UK8/IT40", "UK10/IT42", "UK12/IT44", "UK14/IT46"]
-SKIP_LINES     = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COST TOTAL"]
-COLOR_JUNK     = {
+SKIP_LINES = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COST TOTAL"]
+COLOR_JUNK = {
     "JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY",
     "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL",
-    "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY", "SCOOP", "SLEEVE",
+    "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY", "SCOOP",
     "PRODUCTION", "MADE", "LOCATION", "UNITED", "KINGDOM", "KOREA", "SOUTH"
 }
-MODEL_RE       = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
+MODEL_RE = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
 
 def extract_code(text: str) -> str:
     m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
-    if m:
-        return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper()
-    return ""
+    return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper() if m else ""
 
 
 # ===========================================================================
-# PDF DE PREÇOS
-# ===========================================================================
-def parse_prices_pdf(pdf_file) -> dict:
-    prices = {}
-    current_code        = ""
-    current_designation = ""
-
-    with pdfplumber.open(pdf_file) as pdf:
-        for page in pdf.pages:
-            text  = page.extract_text() or ""
-            lines = text.split("\n")
-
-            for line in lines:
-                l_up = line.upper().strip()
-                if not l_up:
-                    continue
-
-                # Linha de tamanhos — ignorar (não necessária para preços)
-                if re.search(r"UK\s*\d+", line, re.IGNORECASE) and re.search(r"IT\s*\d+", line, re.IGNORECASE):
-                    continue
-
-                # Linha de modelo
-                if MODEL_RE.search(line):
-                    current_code = extract_code(line)
-                    name_part = re.split(r"(SNW|SNM|SN)\s*[-–]\s*\d+", line, flags=re.I)[0].strip()
-                    current_designation = f"{name_part} {current_code}".strip()
-                    continue
-
-                # Linha de preço
-                if "€" in line and current_code and "TOTAL" not in l_up:
-                    price_matches = re.findall(r"€\s*([\d,\.]+)", line)
-                    if not price_matches:
-                        continue
-                    unit_price = float(price_matches[0].replace(",", ""))
-                    before_euro = line.split("€")[0].strip()
-                    before_nums = re.split(r"\s+\d", before_euro)[0]
-                    color_tokens = [
-                        t for t in before_nums.split()
-                        if t.upper().strip("–-") not in COLOR_JUNK
-                        and not re.match(r"^[\d.,/]+$", t)
-                        and len(t) > 1
-                    ]
-                    color = " ".join(color_tokens[-2:]).upper()
-                    if color:
-                        prices[(current_code, color)] = {
-                            "unit_price":  unit_price,
-                            "designation": current_designation,
-                        }
-
-    return prices
-
-
-# ===========================================================================
-# PDF DE QUANTIDADES
+# PDF DE QUANTIDADES — extração
 # ===========================================================================
 def parse_quantities_pdf(pdf_file) -> list:
     rows = []
@@ -130,7 +72,7 @@ def parse_quantities_pdf(pdf_file) -> list:
                     current_sizes = []
                     continue
 
-                # 3. TAMANHOS
+                # 3. TAMANHOS (UK/IT colados)
                 if re.search(r"UK\s*\d+", line, re.IGNORECASE) and re.search(r"IT\s*\d+", line, re.IGNORECASE):
                     raw = re.sub(r"\s+", "", line.upper())
                     current_sizes = re.findall(r"UK\d+/IT\d+", raw)
@@ -170,8 +112,8 @@ def parse_quantities_pdf(pdf_file) -> list:
                     if idx >= 0 and qty_values[idx] > 0:
                         rows.append({
                             "code":        current_code,
-                            "color":       color,
                             "model":       current_model,
+                            "color":       color,
                             "size":        size,
                             "qty":         qty_values[idx],
                             "destination": current_dest,
@@ -181,61 +123,14 @@ def parse_quantities_pdf(pdf_file) -> list:
 
 
 # ===========================================================================
-# CRUZAMENTO
-# ===========================================================================
-def merge_sn(qty_rows: list, prices: dict) -> list:
-    final = []
-    unmatched = set()
-
-    for r in qty_rows:
-        key       = (r["code"], r["color"])
-        price_obj = prices.get(key, {})
-        unit_price  = price_obj.get("unit_price", 0)
-        designation = price_obj.get("designation", r["model"])
-
-        if not price_obj:
-            unmatched.add(key)
-
-        final.append({
-            "Reference":           "",
-            "Designation":         designation,
-            "Qty":                 r["qty"],
-            "Unit Price":          unit_price,
-            "Unit Price Currency": 0,
-            "VAT Table":           4,
-            "Color":               r["color"],
-            "Size":                r["size"],
-            "TOTAL":               r["qty"] * unit_price,
-            "Destination":         r["destination"],
-            "CPO No.":             "",
-            "SPO No.":             "",
-            "Supplier Unit Value": "",
-            "Total Supplier":      "",
-        })
-
-    if unmatched:
-        st.warning(f"⚠️ Preço não encontrado para: {', '.join(str(k) for k in unmatched)}")
-
-    return final
-
-
-# ===========================================================================
 # UPLOADERS
 # ===========================================================================
 if client == "Studio Nicholson":
-    st.info("📎 Faz upload dos dois PDFs: o de **preços** (com €) e o de **quantidades** (com UK sizes).")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**PDF de Preços** (com €)")
-        pdf_prices = st.file_uploader("Upload PDF Preços", type=["pdf"], key="pdf_prices")
-    with col2:
-        st.markdown("**PDF de Quantidades** (com UK sizes)")
-        pdf_qty = st.file_uploader("Upload PDF Quantidades", type=["pdf"], key="pdf_qty")
-    uploaded_file = None
-else:
-    uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
+    uploaded_file = st.file_uploader("Upload PDF Quantidades", type=["pdf"])
     pdf_prices = None
     pdf_qty    = None
+else:
+    uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
 
 
 # ===========================================================================
@@ -322,13 +217,48 @@ try:
                             })
 
     # ── STUDIO NICHOLSON ─────────────────────────────────────────────────
-    elif client == "Studio Nicholson" and pdf_prices and pdf_qty:
-        with st.spinner("A processar PDFs..."):
-            pdf_prices.seek(0)
-            prices = parse_prices_pdf(pdf_prices)
-            pdf_qty.seek(0)
-            qty_rows = parse_quantities_pdf(pdf_qty)
-            data_list = merge_sn(qty_rows, prices)
+    elif client == "Studio Nicholson" and uploaded_file:
+        uploaded_file.seek(0)
+        qty_rows = parse_quantities_pdf(uploaded_file)
+
+        if qty_rows:
+            # Extrai modelos únicos para o utilizador introduzir preços
+            models = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
+
+            st.subheader("💶 Introduz o preço unitário por modelo")
+            price_map = {}
+            cols_ui = st.columns(min(len(models), 3))
+            for idx, (code, model_name) in enumerate(models):
+                with cols_ui[idx % 3]:
+                    price = st.number_input(
+                        f"{code}",
+                        min_value=0.0,
+                        step=0.01,
+                        format="%.2f",
+                        key=f"price_{code}",
+                        help=model_name,
+                    )
+                    price_map[code] = price
+
+            if st.button("✅ Gerar Excel", type="primary"):
+                for r in qty_rows:
+                    unit_price = price_map.get(r["code"], 0)
+                    data_list.append({
+                        "Reference":           "",
+                        "Designation":         r["model"],
+                        "Qty":                 r["qty"],
+                        "Unit Price":          unit_price,
+                        "Unit Price Currency": 0,
+                        "VAT Table":           4,
+                        "Color":               r["color"],
+                        "Size":                r["size"],
+                        "TOTAL":               r["qty"] * unit_price,
+                        "Destination":         r["destination"],
+                        "CPO No.":             "",
+                        "SPO No.":             "",
+                        "Supplier Unit Value": "",
+                        "Total Supplier":      "",
+                    })
 
     # ── OUTPUT ───────────────────────────────────────────────────────────
     if data_list:
@@ -342,11 +272,6 @@ try:
                 )
         st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
         st.download_button("⬇️ Download PHC Excel", out.getvalue(), f"IMPORT_{client}.xlsx")
-    elif client == "Studio Nicholson" and (not pdf_prices or not pdf_qty):
-        pass
-    else:
-        if uploaded_file or (pdf_prices and pdf_qty):
-            st.warning("Nenhum dado válido encontrado. Verifica o ficheiro.")
 
 except Exception as e:
     st.error(f"Erro: {e}")
