@@ -72,6 +72,10 @@ def sn_extract_raw(pdf_file) -> list:
                     (l for l in dest_lines if not skip_dest.search(l)), None
                 )
                 if dest_line:
+                    # Se a linha contiver " - " é provável que seja "Empresa - Armazém"
+                    # Ficamos com a parte após o último " - "
+                    if " - " in dest_line:
+                        dest_line = dest_line.split(" - ")[-1].strip()
                     events.append({"type": "destination", "dest": dest_line})
 
             # Mapa de tamanhos nesta página
@@ -85,7 +89,9 @@ def sn_extract_raw(pdf_file) -> list:
 
                 # Linha de modelo
                 if any(l_up.startswith(pfx.upper()) for pfx in MODEL_PREFIXES):
-                    model = re.split(r"Qty|Cost|Total|First", line, flags=re.I)[0].strip()
+                    # Corta na primeira referência a tamanho ou palavra de cabeçalho
+                    size_pattern = r"\b(" + "|".join(SIZE_REFS) + r"|Qty|Cost|Total|First)\b"
+                    model = re.split(size_pattern, line, flags=re.I)[0].strip()
                     events.append({"type": "model", "model": model})
                     continue
 
