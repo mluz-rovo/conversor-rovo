@@ -152,7 +152,7 @@ if arquivo:
                 df[cols].to_excel(writer, index=False, sheet_name="PHC")
             out.seek(0)
 
-            st.success(f"✅ {len(df)} linhas extraídas com sucesso!")
+            st.success(f"✅ {len(df)} done!")
             st.dataframe(df[cols], use_container_width=True)
             st.download_button("⬇️ Download Excel", out.getvalue(), "IMPORTAR_PHC.xlsx")
         elif arquivo:
