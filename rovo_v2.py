@@ -20,17 +20,15 @@ if arquivo:
             
             if cliente == "Stussy":
                 df = xl.parse(xl.sheet_names[0], header=None)
-                # Começamos na linha 2 (índice 1) para saltar o cabeçalho
+                # Começamos na linha 2 (índice 1)
                 for i, row in df.iloc[1:].iterrows():
-                    if len(row) >= 14: # Garante que temos até à coluna N
-                        # Coluna M (12) = Quantidade
-                        q_raw = row[12]
-                        # Coluna N (13) = Preço (Pr.Unit.Moeda)
-                        p_raw = row[13]
+                    if len(row) >= 14:
+                        q_raw = row[12] # Coluna M
+                        p_raw = row[13] # Coluna N
                         
                         q = pd.to_numeric(q_raw, errors='coerce')
                         
-                        # Limpeza do Preço (caso venha com texto ou símbolos)
+                        # Limpeza do Preço
                         if isinstance(p_raw, str):
                             p_clean = re.sub(r'[^\d\.]', '', p_raw.replace(',', '.'))
                             p = pd.to_numeric(p_clean, errors='coerce')
@@ -40,20 +38,19 @@ if arquivo:
                         if q and q > 0:
                             lista_dados.append({
                                 'Referência': "", 
-                                'Designação': row[5] if len(row) > 5 else "", # Coluna F (Estilo)
+                                'Designação': row[8] if len(row) > 8 else "", # Coluna I
                                 'Quant.': q, 
                                 'Pr.Unit.': 0, 
                                 'Pr.Unit.Moeda': p if pd.notna(p) else 0, 
                                 'Tabela de IVA': 4, 
-                                'Cor': row[6] if len(row) > 6 else "", # Coluna G (Color Description)
-                                'Tamanho': row[9] if len(row) > 9 else "", # Coluna J (Size)
+                                'Cor': row[7] if len(row) > 7 else "", # Coluna H
+                                'Tamanho': row[9] if len(row) > 9 else "", # Coluna J
                                 'TOTAL': q * (p if pd.notna(p) else 0), 
-                                'Destino': row[4] if len(row) > 4 else "", # Coluna E (Store)
+                                'Destino': row[4] if len(row) > 4 else "", # Coluna E
                                 'CPO': ""
                             })
 
             elif cliente == "Supreme":
-                # (Lógica Supreme mantida)
                 for aba in xl.sheet_names:
                     if "TOTAL" in aba.upper(): continue
                     df = xl.parse(aba, header=None)
@@ -69,7 +66,6 @@ if arquivo:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'CPO': ""})
 
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
-            # (Lógica Studio Nicholson mantida conforme versão anterior estável)
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
                 lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST", "MAKE"]
@@ -119,10 +115,10 @@ if arquivo:
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 df_final[cols].to_excel(writer, index=False, sheet_name="PHC")
-            st.success(f"✅ Ficheiro {cliente} processado com sucesso!")
-            st.download_button("⬇️ Descarregar Excel", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
+            st.success(f"✅ Conversão concluída!")
+            st.download_button("⬇️ Descarregar Excel", out.getvalue(), f"IMPORTAR_RESULTADO.xlsx")
         else:
-            st.warning("Não foram encontrados dados no ficheiro.")
+            st.warning("Nenhum dado encontrado.")
 
     except Exception as e:
-        st.error(f"Ocorreu um erro: {e}")
+        st.error(f"Erro: {e}")
