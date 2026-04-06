@@ -48,6 +48,7 @@ def parse_quantities_pdf(pdf_file) -> list:
     current_code  = ""
     current_model = ""
     current_sizes = []
+    log = []
 
     with pdfplumber.open(pdf_file) as pdf:
         for page in pdf.pages:
@@ -64,6 +65,7 @@ def parse_quantities_pdf(pdf_file) -> list:
                     dest_raw = re.sub(r"^SHIP\s+TO\s*", "", line, flags=re.I)
                     dest_raw = re.sub(r"Ship\s+To:.*$", "", dest_raw, flags=re.I).strip()
                     current_dest = dest_raw.split(" - ")[-1].strip() if " - " in dest_raw else dest_raw
+                    log.append(f"DEST → {current_dest}")
                     continue
 
                 # 2. MODELO
@@ -71,36 +73,35 @@ def parse_quantities_pdf(pdf_file) -> list:
                     current_code  = extract_code(line)
                     current_model = re.split(r"\s+Qty\b", line, flags=re.I)[0].strip()
                     current_sizes = []
+                    log.append(f"MODEL → {current_code} | {current_model}")
                     continue
 
-                # 3. TAMANHOS (UK/IT colados)
+                # 3. TAMANHOS
                 if re.search(r"UK\s*\d+", line, re.IGNORECASE) and re.search(r"IT\s*\d+", line, re.IGNORECASE):
                     raw = re.sub(r"\s+", "", line.upper())
                     current_sizes = re.findall(r"UK\d+/IT\d+", raw)
+                    log.append(f"SIZES → {current_sizes}")
                     continue
 
                 # 4. SKIP totais
                 if any(skip in l_up for skip in SKIP_LINES):
+                    log.append(f"SKIP → {repr(line[:60])}")
                     continue
 
-                # 5. QUANTIDADES — só linhas que começam com descrição de produto
+                # 5. QUANTIDADES
                 if not current_code or not current_sizes:
+                    log.append(f"NO STATE → {repr(line[:60])}")
                     continue
 
-                # Linha de produto tem sempre "JERSEY" ou "KNIT" no início
                 PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
                 first_word = l_up.split()[0] if l_up.split() else ""
                 if first_word not in PRODUCT_WORDS:
+                    log.append(f"NOT PRODUCT ({first_word!r}) → {repr(line[:60])}")
                     continue
 
                 normalized = re.sub(r"(?<!\w)[-–](?!\w)", "0", line)
                 nums = re.findall(r"\b(\d+)\b", normalized)
-                if not nums:
-                    continue
-
-                qty_values = [int(n) for n in nums][:-1]
-                if not qty_values:
-                    continue
+                qty_values = [int(n) for n in nums][:-1] if nums else []
 
                 before_nums = re.split(r"\s+[\d–-]", line)[0]
                 color_tokens = [
@@ -110,7 +111,9 @@ def parse_quantities_pdf(pdf_file) -> list:
                     and len(t) > 1
                 ]
                 color = " ".join(color_tokens[-2:]).upper() if color_tokens else ""
-                if not color:
+                log.append(f"QTY LINE → color={color!r} nums={qty_values} | {repr(line[:60])}")
+
+                if not color or not qty_values:
                     continue
 
                 offset = len(current_sizes) - len(qty_values)
@@ -125,6 +128,11 @@ def parse_quantities_pdf(pdf_file) -> list:
                             "qty":         qty_values[idx],
                             "destination": current_dest,
                         })
+
+    # Mostra log
+    with st.expander("🐛 Debug linha a linha", expanded=True):
+        for entry in log:
+            st.text(entry)
 
     return rows
 
