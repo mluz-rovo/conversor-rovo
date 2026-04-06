@@ -4,7 +4,7 @@ import io
 import pdfplumber
 import re
 
-# Versão do Código: 2.0 - Correção de Colunas e Cor
+# Versão do Código: 2.1 - Correção Erro Index Coluna Stussy
 st.set_page_config(page_title="ROVO - Conversor Universal", page_icon="🚀")
 st.title("🚀 ROVO Universal Converter")
 
@@ -27,9 +27,27 @@ if arquivo:
             if cliente == "Stussy":
                 df = xl.parse(xl.sheet_names[0], header=None)
                 for i, row in df.iloc[1:].iterrows():
-                    q, p = pd.to_numeric(row[12], errors='coerce'), pd.to_numeric(row[17], errors='coerce')
-                    if q and q > 0:
-                        lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': row[6], 'Tamanho': row[9], 'TOTAL': q*(p if p else 0), 'Destino': row[4], 'Aba': "Stussy_PO"})
+                    # Proteção: Verifica se a linha tem colunas suficientes (Erro 17 evitado aqui)
+                    if len(row) > 17:
+                        q = pd.to_numeric(row[12], errors='coerce')
+                        p = pd.to_numeric(row[17], errors='coerce')
+                        if q and q > 0:
+                            lista_dados.append({
+                                'Referência': "", 
+                                'Designação': "", 
+                                'Quant.': q, 
+                                'Pr.Unit.': 0, 
+                                'Pr.Unit.Moeda': p if pd.notna(p) else 0, 
+                                'Tabela de IVA': 4, 
+                                'Cor': row[6] if len(row) > 6 else "", 
+                                'Tamanho': row[9] if len(row) > 9 else "", 
+                                'TOTAL': q * (p if pd.notna(p) else 0), 
+                                'Destino': row[4] if len(row) > 4 else "", 
+                                'Aba': "Stussy_PO"
+                            })
+                    else:
+                        continue # Salta linhas que não têm o formato esperado
+
             elif cliente == "Supreme":
                 for aba in xl.sheet_names:
                     if "TOTAL" in aba.upper(): continue
@@ -45,11 +63,10 @@ if arquivo:
                                 if q and q > 0:
                                     lista_dados.append({'Referência': "", 'Designação': "", 'Quant.': q, 'Pr.Unit.': 0, 'Pr.Unit.Moeda': p, 'Tabela de IVA': 4, 'Cor': df.iloc[i, 6], 'Tamanho': t_nom, 'TOTAL': q*(p if p else 0), 'Destino': dest, 'Aba': aba})
 
-        # --- LÓGICA PDF STUDIO NICHOLSON (SUPER REFORMULADA) ---
+        # --- LÓGICA PDF STUDIO NICHOLSON ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
                 tams_ref = ["XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
-                # Palavras proibidas na coluna COR
                 palavras_proibidas = ["JERSEY", "MICRO", "RIB", "MERCERIZED", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "VEST", "HENLEY", "SCOOP", "NECK", "TOTAL", "QTY", "OTY", "SNM", "SNW", "LAY", "PRODUCTION", "ORDER"]
 
                 for page in pdf.pages:
@@ -78,24 +95,11 @@ if arquivo:
                             row_str_full = " ".join([str(x) for x in row_data if x]).replace('\n', ' ')
                             
                             if "€" in row_str_full:
-                                # DESIGNACAO: O modelo da primeira coluna
                                 designacao = str(row_data[0]).split('\n')[0].strip()
-                                
-                                # COR: Filtro cirúrgico
                                 partes = row_str_full.split()
-                                cor_limpa = []
-                                for p in partes:
-                                    p_up = p.upper().replace(',', '').replace('.', '')
-                                    if (p_up not in palavras_proibidas and 
-                                        not p_up.isdigit() and 
-                                        "€" not in p_up and 
-                                        "SN" not in p_up and # Remove SNW e SNM
-                                        len(p_up) > 2):
-                                        cor_limpa.append(p)
-                                
+                                cor_limpa = [p for p in partes if p.upper().replace(',', '').replace('.', '') not in palavras_proibidas and not p.replace('.', '').isdigit() and "€" not in p and "SN" not in p.upper() and len(p) > 2]
                                 cor_resultado = " ".join(cor_limpa).strip()
                                 
-                                # PREÇO: Para a coluna D (Pr.Unit.) e E (Moeda) a 0
                                 p_valor = 0
                                 for cell in row_data:
                                     if "€" in str(cell):
@@ -103,44 +107,29 @@ if arquivo:
                                         p_valor = pd.to_numeric(p_txt, errors='coerce')
                                         break
 
-                                # QUANTIDADES
                                 for col_idx, h_text in enumerate(headers):
-                                    tam_detectado = ""
-                                    for t in tams_ref:
-                                        if t in h_text.upper():
-                                            tam_detectado = h_text
-                                            break
-                                    
+                                    tam_detectado = next((t for t in tams_ref if t in h_text.upper()), "")
                                     if tam_detectado:
                                         qtd = pd.to_numeric(row_data[col_idx], errors='coerce')
                                         if qtd and qtd > 0:
                                             lista_dados.append({
-                                                'Referência': "", # Coluna A vazia
-                                                'Designação': designacao, # Coluna B
-                                                'Quant.': qtd, # Coluna C
-                                                'Pr.Unit.': p_valor, # Coluna D
-                                                'Pr.Unit.Moeda': 0, # Coluna E
-                                                'Tabela de IVA': 4, 
-                                                'Cor': cor_resultado, 
-                                                'Tamanho': tam_detectado, 
-                                                'TOTAL': qtd * p_valor, 
-                                                'Destino': destino, 
-                                                'Aba': "Nicholson_PO"
+                                                'Referência': "", 'Designação': designacao, 'Quant.': qtd, 'Pr.Unit.': p_valor, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 'Cor': cor_resultado, 'Tamanho': h_text, 'TOTAL': qtd * p_valor, 'Destino': destino, 'Aba': "Nicholson_PO"
                                             })
 
-        df_final = pd.DataFrame(lista_dados)
-        if not df_final.empty:
+        if lista_dados:
+            df_final = pd.DataFrame(lista_dados)
             df_final['CPO'] = ""
             cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
+            
             out = io.BytesIO()
             with pd.ExcelWriter(out, engine='openpyxl') as writer:
                 for aba_nom in df_final['Aba'].unique():
                     df_final[df_final['Aba'] == aba_nom][cols].to_excel(writer, sheet_name=str(aba_nom)[:31], index=False)
             
-            st.success("✅ Conversão Final Nicholson Concluída!")
+            st.success(f"✅ Conversão concluída para {cliente}!")
             st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
         else:
-            st.warning("Dados não detetados. Verifique se o PDF é legível.")
+            st.warning("Nenhum dado válido encontrado no ficheiro.")
 
     except Exception as e:
-        st.error(f"Erro: {e}")
+        st.error(f"Erro no processamento: {e}")
