@@ -78,4 +78,64 @@ if arquivo:
         # --- LÓGICA STUDIO NICHOLSON ---
         elif arquivo.name.endswith('.pdf') and cliente == "Studio Nicholson":
             with pdfplumber.open(arquivo) as pdf:
-                tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "
+                tams_ref = ["XXS", "XS", "S", "M", "L", "XL", "XXL", "UK4", "UK6", "UK8", "UK10", "UK12", "UK14"]
+                lixo_geral = ["JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY", "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL", "FIRST", "MAKE"]
+                modelo_atual = ""
+                destino_final = "Ver PDF"
+                for page in pdf.pages:
+                    palavras = page.extract_words()
+                    texto = page.extract_text()
+                    if not texto: continue
+                    linhas = texto.split('\n')
+                    ship_match = re.search(r"Ship To:\s*(.*)", texto, re.IGNORECASE)
+                    if ship_match:
+                        linhas_ship = texto.split("Ship To:")[1].split('\n')
+                        destino_final = linhas_ship[1].strip() if len(linhas_ship) > 1 else destino_final
+                    mapa_tams = []
+                    x_max = 0
+                    for p in palavras:
+                        t_up = p['text'].upper().strip()
+                        if any(t == t_up or (t in t_up and "/" in t_up) for t in tams_ref):
+                            mapa_tams.append({'tam': t_up, 'centro': (p['x0']+p['x1'])/2, 'x1': p['x1']})
+                            if p['x1'] > x_max: x_max = p['x1']
+                    for i, linha in enumerate(linhas):
+                        l_up = linha.upper()
+                        if any(x in l_up for x in ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL"]): continue
+                        if any(x in l_up for x in ["SNW -", "SNM -", "SN -", "LAY "]):
+                            modelo_atual = re.split(r"Qty|Cost|Total|First", linha, flags=re.I)[0].strip()
+                            continue
+                        if "€" in linha:
+                            pts = linha.split()
+                            precos = re.findall(r"(\d+[\.,]\d{2})", linha)
+                            p_unit = float(precos[0].replace(',', '')) if precos else 0
+                            cor_parts = [pt for pt in pts if pt.upper().replace(',','').replace('.','') not in lixo_geral and not pt.isdigit() and "€" not in pt and len(pt) > 2]
+                            cor_final = " ".join(cor_parts[:2])
+                            y_ref = next((p_word['top'] for p_word in palavras if p_word['text'] == "€" and abs(p_word['top'] - page.extract_text_lines()[i]['top']) < 20), None)
+                            if y_ref is None: continue
+                            for m in mapa_tams:
+                                for p_doc in palavras:
+                                    if abs(p_doc['top'] - y_ref) < 10 and abs(((p_doc['x0'] + p_doc['x1']) / 2) - m['centro']) < 12:
+                                        if p_doc['text'].isdigit() and p_doc['x1'] <= (x_max + 10):
+                                            q_num = int(p_doc['text'])
+                                            if q_num > 0:
+                                                lista_dados.append({'Referência': "", 'Designação': modelo_atual, 'Quant.': q_num, 'Pr.Unit.': p_unit, 'Pr.Unit.Moeda': 0, 'Tabela de IVA': 4, 'Cor': cor_final, 'Tamanho': m['tam'], 'TOTAL': q_num * p_unit, 'Destino': destino_final, 'CPO': ""})
+
+        # --- GERAÇÃO DO FICHEIRO FINAL ---
+        if lista_dados:
+            df_final = pd.DataFrame(lista_dados).drop_duplicates()
+            cols = ['Referência', 'Designação', 'Quant.', 'Pr.Unit.', 'Pr.Unit.Moeda', 'Tabela de IVA', 'Cor', 'Tamanho', 'TOTAL', 'Destino', 'CPO']
+            
+            out = io.BytesIO()
+            with pd.ExcelWriter(out, engine='openpyxl') as writer:
+                for destino in df_final['Destino'].unique():
+                    nome_aba = str(destino).replace('[','').replace(']','').replace('*','').replace(':','').replace('?','').replace('/','').replace('\\','')[:31]
+                    df_dest = df_final[df_final['Destino'] == destino]
+                    df_dest[cols].to_excel(writer, index=False, sheet_name=nome_aba)
+            
+            st.success(f"✅ Ficheiro {cliente} pronto para download!")
+            st.download_button("⬇️ Descarregar Excel PHC", out.getvalue(), f"IMPORTAR_{cliente}.xlsx")
+        else:
+            st.warning("Nenhum dado encontrado.")
+
+    except Exception as e:
+        st.error(f"Erro: {e}")
