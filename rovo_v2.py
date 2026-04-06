@@ -256,6 +256,17 @@ elif client == "Studio Nicholson":
         try:
             file_bytes = uploaded_file.read()
             qty_rows   = parse_quantities_pdf(io.BytesIO(file_bytes))
+            with st.expander("🐛 Debug", expanded=True):
+                st.write(f"Linhas extraídas: {len(qty_rows)}")
+                st.write(qty_rows[:5] if qty_rows else "Vazio")
+                # Mostra linhas cruas do PDF
+                import io as _io
+                with pdfplumber.open(_io.BytesIO(file_bytes)) as pdf:
+                    for p_num, page in enumerate(pdf.pages):
+                        st.markdown(f"**Página {p_num+1}**")
+                        for i, line in enumerate(page.extract_text().split("\n")):
+                            st.text(f"[{i}] {repr(line)}")
+
             if qty_rows:
                 st.session_state["sn_rows"] = qty_rows
             elif "sn_rows" not in st.session_state:
