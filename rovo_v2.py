@@ -37,21 +37,20 @@ PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
 
 @st.cache_data
 def cached_parse(file_bytes: bytes) -> list:
-    import io as _io
-    return parse_quantities_pdf(_io.BytesIO(file_bytes))
+    return parse_quantities_pdf(io.BytesIO(file_bytes))
 
 
     m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
     return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper() if m else ""
 
-def parse_quantities_pdf(pdf_file) -> list:
+def parse_quantities_pdf(pdf_source) -> list:
     rows = []
     current_dest  = "See PDF"
     current_code  = ""
     current_model = ""
     current_sizes = []
 
-    with pdfplumber.open(pdf_file) as pdf:
+    with pdfplumber.open(pdf_source) as pdf:
         for page in pdf.pages:
             text  = page.extract_text() or ""
             lines = text.split("\n")
