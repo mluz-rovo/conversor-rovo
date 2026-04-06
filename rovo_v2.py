@@ -31,7 +31,7 @@ SKIP_LINES     = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COS
 COLOR_JUNK     = {
     "JERSEY", "MICRO", "RIB", "SHORT", "SLEEVE", "NECK", "VEST", "HENLEY",
     "COTTON", "BRANDED", "BOXY", "FIT", "T-SHIRT", "QTY", "COST", "TOTAL",
-    "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY"
+    "FIRST", "MAKE", "-", "–", "SORIN", "VOTAN", "LAY", "SCOOP"
 }
 # Regex para detectar linha de tamanhos colados ex: "UK4 / IT36UK6 / IT38..."
 SIZE_LINE_RE   = re.compile(r"UK\d+\s*/\s*IT\d+", re.IGNORECASE)
@@ -85,8 +85,8 @@ def parse_prices_pdf(pdf_file) -> dict:
                     current_code = extract_code(line)
                     continue
 
-                # Linha de preço (contém €)
-                if "€" in line and current_code:
+                # Linha de preço (contém €) — ignora linhas de totais gerais
+                if "€" in line and current_code and "TOTAL" not in l_up:
                     price_matches = re.findall(r"€\s*([\d,\.]+)", line)
                     if not price_matches:
                         continue
