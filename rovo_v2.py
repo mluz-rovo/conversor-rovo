@@ -128,3 +128,9 @@ if arquivo:
     except Exception as e:
         st.error(f"Erro: {e}")
         st.exception(e)
+
+def extract_ship_to(text):
+    # DEBUG — remove depois
+    idx = text.find("Ship To:")
+    if idx != -1:
+        st.write("SHIP TO DEBUG:", repr(text[idx:idx+100]))
