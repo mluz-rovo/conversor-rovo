@@ -22,7 +22,7 @@ if client == "Supreme":
 st.title(f"📦 Converter: {client}")
 
 # ===========================================================================
-# STUDIO NICHOLSON — CONSTANTES E FUNÇÕES
+# STUDIO NICHOLSON — CONSTANTES
 # ===========================================================================
 SKIP_LINES = ["TOTAL QTY", "FIRST/MAKE", "SUB-TOTAL", "TOTAL COST", "QTY COST TOTAL"]
 COLOR_JUNK = {
@@ -32,14 +32,21 @@ COLOR_JUNK = {
     "PRODUCTION", "MADE", "LOCATION", "UNITED", "KINGDOM", "KOREA", "SOUTH",
     "PRINTED", "REG", "OFFICE", "VAT", "PAGE"
 }
-MODEL_RE = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
+MODEL_RE      = re.compile(r"(SNW|SNM|SN)\s*[-–]\s*\d+", re.IGNORECASE)
 PRODUCT_WORDS = {"JERSEY", "KNIT", "WOVEN", "DENIM", "FLEECE", "TWILL"}
-
-
 SIZE_REFS_STD = ["XXS", "XS", "S", "M", "L", "XL", "XXL"]
+SIZE_IT_KEYS  = ["IT36", "IT38", "IT40", "IT42", "IT44", "IT46"]
+
+
+# ===========================================================================
+# STUDIO NICHOLSON — FUNÇÕES
+# ===========================================================================
+def extract_code(text):
+    m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
+    return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper() if m else ""
+
 
 def parse_size_line_std(line):
-    """Extrai tamanhos standard (XS, S, M, L...) de uma linha de cabeçalho."""
     seen, sizes = set(), []
     for token in line.split():
         t = token.upper().strip(".,")
@@ -47,10 +54,6 @@ def parse_size_line_std(line):
             sizes.append(t)
             seen.add(t)
     return sizes
-
-
-    m = re.search(r"(S[NW]W?\s*[-–]\s*\d+|SN\s*[-–]\s*\d+)", text, re.IGNORECASE)
-    return re.sub(r"\s*[-–]\s*", "-", m.group(1)).upper() if m else ""
 
 
 def parse_quantities_pdf(pdf_source):
@@ -99,15 +102,15 @@ def parse_quantities_pdf(pdf_source):
                     current_sizes = []
                     continue
 
-                # 4. TAMANHOS — UK/IT colados ou standard (XS, S, M, L...)
-                is_uk = any(x in l_up for x in ["IT36", "IT38", "IT40", "IT42", "IT44", "IT46"])
+                # 4. TAMANHOS — UK/IT ou standard (XS, S, M, L...)
+                is_uk  = any(k in l_up for k in SIZE_IT_KEYS)
                 is_std = any(f" {s} " in f" {l_up} " for s in SIZE_REFS_STD)
 
                 if is_uk:
                     raw = re.sub(r"\s+", "", line.upper())
                     current_sizes = re.findall(r"UK\d+/IT\d+", raw)
                     continue
-                elif is_std and MODEL_RE.search(line) is None:
+                elif is_std and not MODEL_RE.search(line):
                     current_sizes = parse_size_line_std(line)
                     continue
 
@@ -129,10 +132,8 @@ def parse_quantities_pdf(pdf_source):
                 if not nums:
                     continue
                 qty_values = [int(n) for n in nums]
-                # Remove o último número (total geral)
-                qty_values = qty_values[:-1]
-                # Garante que não excede o número de tamanhos
-                qty_values = qty_values[:len(current_sizes)]
+                qty_values = qty_values[:-1]                    # remove total
+                qty_values = qty_values[:len(current_sizes)]    # trunca ao nº de tamanhos
                 if not qty_values:
                     continue
 
@@ -278,17 +279,6 @@ elif client == "Studio Nicholson":
         try:
             file_bytes = uploaded_file.read()
             qty_rows   = parse_quantities_pdf(io.BytesIO(file_bytes))
-            with st.expander("🐛 Debug", expanded=True):
-                st.write(f"Linhas extraídas: {len(qty_rows)}")
-                st.write(qty_rows[:5] if qty_rows else "Vazio")
-                # Mostra linhas cruas do PDF
-                import io as _io
-                with pdfplumber.open(_io.BytesIO(file_bytes)) as pdf:
-                    for p_num, page in enumerate(pdf.pages):
-                        st.markdown(f"**Página {p_num+1}**")
-                        for i, line in enumerate(page.extract_text().split("\n")):
-                            st.text(f"[{i}] {repr(line)}")
-
             if qty_rows:
                 st.session_state["sn_rows"] = qty_rows
             elif "sn_rows" not in st.session_state:
