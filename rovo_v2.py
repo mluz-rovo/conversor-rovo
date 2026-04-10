@@ -188,58 +188,53 @@ if client == "Stussy":
             st.info(f"✅ {len(models_found)} modelo(s) encontrado(s). Preenche as referências no sidebar.")
 
     if st.session_state.get("stussy_df") is not None:
-        if st.button("⬇️ Gerar e Descarregar Excel"):
-            try:
-                df = st.session_state["stussy_df"]
-                ref_map = st.session_state.get("stussy_ref_map", {})
-                des_map = st.session_state.get("stussy_des_map", {})
-                data_list = []
-                for i, row in df.iloc[1:].iterrows():
-                    if len(row) >= 18:
-                        q = pd.to_numeric(row[12], errors="coerce")
-                        p_raw = row[17]
-                        if isinstance(p_raw, str):
-                            p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
-                        else:
-                            p = pd.to_numeric(p_raw, errors="coerce")
-                        if q and q > 0:
-                            p_val  = p if pd.notna(p) else 0
-                            po_raw = row[2] if len(row) > 2 else ""
-                            po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
-                            model  = str(row[8]).strip() if len(row) > 8 else ""
-                            data_list.append({
-                                "Reference":           ref_map.get(model, ""),
-                                "Designation":         des_map.get(model, model),
-                                "Qty":                 q,
-                                "Unit Price":          0,
-                                "Unit Price Currency": p_val,
-                                "VAT Table":           4,
-                                "Color":               row[7] if len(row) > 7 else "",
-                                "Size":                row[9] if len(row) > 9 else "",
-                                "TOTAL":               q * p_val,
-                                "Destination":         row[4] if len(row) > 4 else "General",
-                                "PO":                  po,
-                                "CPO No.":             "",
-                                "SPO No.":             "",
-                                "Supplier Unit Value": "",
-                                "Total Supplier":      "",
-                            })
+        try:
+            df = st.session_state["stussy_df"]
+            ref_map = st.session_state.get("stussy_ref_map", {})
+            des_map = st.session_state.get("stussy_des_map", {})
+            data_list = []
+            for i, row in df.iloc[1:].iterrows():
+                if len(row) >= 18:
+                    q = pd.to_numeric(row[12], errors="coerce")
+                    p_raw = row[17]
+                    if isinstance(p_raw, str):
+                        p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
+                    else:
+                        p = pd.to_numeric(p_raw, errors="coerce")
+                    if q and q > 0:
+                        p_val  = p if pd.notna(p) else 0
+                        po_raw = row[2] if len(row) > 2 else ""
+                        po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
+                        model  = str(row[8]).strip() if len(row) > 8 else ""
+                        data_list.append({
+                            "Reference":           ref_map.get(model, ""),
+                            "Designation":         des_map.get(model, model),
+                            "Qty":                 q,
+                            "Unit Price":          0,
+                            "Unit Price Currency": p_val,
+                            "VAT Table":           4,
+                            "Color":               row[7] if len(row) > 7 else "",
+                            "Size":                row[9] if len(row) > 9 else "",
+                            "TOTAL":               q * p_val,
+                            "Destination":         row[4] if len(row) > 4 else "General",
+                            "PO":                  po,
+                            "CPO No.":             "",
+                            "SPO No.":             "",
+                            "Supplier Unit Value": "",
+                            "Total Supplier":      "",
+                        })
 
-                df_final = pd.DataFrame(data_list).drop_duplicates()
-                st.session_state["stussy_excel"] = make_excel(df_final, "PO")
-                st.session_state["stussy_lines"]  = len(data_list)
-            except Exception as e:
-                st.error(f"Erro: {e}")
-                st.exception(e)
-
-        if st.session_state.get("stussy_excel"):
-            st.success(f"✅ {st.session_state['stussy_lines']} linhas geradas.")
+            df_final = pd.DataFrame(data_list).drop_duplicates()
+            excel    = make_excel(df_final, "PO")
             st.download_button(
-                "⬇️ Download PHC Excel",
-                st.session_state["stussy_excel"],
+                f"⬇️ Download PHC Excel ({len(data_list)} linhas)",
+                excel,
                 "IMPORT_Stussy.xlsx",
                 key="dl_stussy"
             )
+        except Exception as e:
+            st.error(f"Erro: {e}")
+            st.exception(e)
 
 # ===========================================================================
 # SUPREME
