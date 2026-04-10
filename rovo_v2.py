@@ -289,8 +289,8 @@ elif client == "Supreme":
             else:  # SMS — sheet única com estrutura específica
                 df = xl.parse(xl.sheet_names[0], header=None)
 
-                # Destino: Purchase Order No — linha 2 (índice 1), coluna H (índice 7)
-                dest = str(df.iloc[1, 7]).strip() if pd.notna(df.iloc[1, 7]) else "General"
+                # Destino: Ship To — linha 4 (índice 3), coluna H (índice 7)
+                dest = str(df.iloc[3, 7]).strip() if pd.notna(df.iloc[3, 7]) else "General"
 
                 # Tamanhos: linha 15 (índice 14), colunas I-M (índices 8-12)
                 sizes = {}
