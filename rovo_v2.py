@@ -286,37 +286,57 @@ elif client == "Supreme":
                                         "Total Supplier":      "",
                                     })
 
-            else:  # SMS — sheet única
+            else:  # SMS — sheet única com estrutura específica
                 df = xl.parse(xl.sheet_names[0], header=None)
-                sizes = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
-                for start in range(16, len(df), 14):
-                    dest = str(df.iloc[start, 0]).strip()
-                    if not dest or dest == "nan":
-                        dest = "General"
-                    for i in range(start + 1, start + 13):
-                        if i >= len(df) or pd.isna(df.iloc[i, 6]):
-                            continue
-                        p = pd.to_numeric(df.iloc[i, 17], errors="coerce")
-                        for c_idx, s_name in sizes.items():
-                            q = pd.to_numeric(df.iloc[i, c_idx], errors="coerce")
-                            if q and q > 0:
-                                p_val = p if pd.notna(p) else 0
-                                data_list.append({
-                                    "Reference":           ref_manual,
-                                    "Designation":         des_manual,
-                                    "Qty":                 q,
-                                    "Unit Price":          0,
-                                    "Unit Price Currency": p_val,
-                                    "VAT Table":           4,
-                                    "Color":               df.iloc[i, 6],
-                                    "Size":                s_name,
-                                    "TOTAL":               q * p_val,
-                                    "Destination":         dest,
-                                    "CPO No.":             "",
-                                    "SPO No.":             "",
-                                    "Supplier Unit Value": "",
-                                    "Total Supplier":      "",
-                                })
+
+                # Destino: Purchase Order No — linha 2 (índice 1), coluna H (índice 7)
+                dest = str(df.iloc[1, 7]).strip() if pd.notna(df.iloc[1, 7]) else "General"
+
+                # Tamanhos: linha 15 (índice 14), colunas I-M (índices 8-12)
+                sizes = {}
+                for c in range(8, 13):
+                    val = df.iloc[14, c]
+                    if pd.notna(val) and str(val).strip():
+                        sizes[c] = str(val).strip()
+
+                # Modelo: primeira célula não vazia na coluna A a partir da linha 18 (índice 17)
+                current_model = ""
+                for i in range(17, len(df)):
+                    row = df.iloc[i]
+
+                    # Modelo — coluna A não vazia
+                    if pd.notna(row[0]) and str(row[0]).strip():
+                        current_model = str(row[0]).strip()
+
+                    # Cor — coluna G (índice 6)
+                    color = str(row[6]).strip() if pd.notna(row[6]) and str(row[6]).strip() else ""
+                    if not color or color == "nan":
+                        continue
+
+                    # Unit price — coluna O (índice 14)
+                    p = pd.to_numeric(row[14], errors="coerce") if pd.notna(row[14]) else 0
+                    p_val = p if pd.notna(p) else 0
+
+                    # Quantidades por tamanho
+                    for c_idx, s_name in sizes.items():
+                        q = pd.to_numeric(row[c_idx], errors="coerce")
+                        if q and q > 0:
+                            data_list.append({
+                                "Reference":           ref_manual,
+                                "Designation":         des_manual,
+                                "Qty":                 q,
+                                "Unit Price":          0,
+                                "Unit Price Currency": p_val,
+                                "VAT Table":           4,
+                                "Color":               color,
+                                "Size":                s_name,
+                                "TOTAL":               q * p_val,
+                                "Destination":         dest,
+                                "CPO No.":             "",
+                                "SPO No.":             "",
+                                "Supplier Unit Value": "",
+                                "Total Supplier":      "",
+                            })
 
             if data_list:
                 df_final = pd.DataFrame(data_list).drop_duplicates()
