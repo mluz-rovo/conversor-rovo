@@ -9,12 +9,7 @@ st.set_page_config(page_title="ROVO - Universal Converter", page_icon="🚀", la
 st.sidebar.title("🚀 ROVO MENU")
 client = st.sidebar.selectbox("Select Client", ["Stussy", "Supreme", "Studio Nicholson"], key="client_select")
 
-# Limpa session_state do Stussy só quando muda de cliente
-prev = st.session_state.get("last_client")
-if prev is not None and prev != client:
-    for key in ["stussy_models", "stussy_df", "stussy_ref_map", "stussy_des_map", "stussy_excel", "stussy_lines"]:
-        st.session_state.pop(key, None)
-st.session_state["last_client"] = client
+
 
 # ===========================================================================
 # SIDEBAR — campos por cliente
