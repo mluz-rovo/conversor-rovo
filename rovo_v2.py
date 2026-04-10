@@ -187,11 +187,13 @@ try:
         sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
         df = xl.parse(sheet_name, header=None)
 
-        # Detecta modelos únicos (coluna I = índice 8) e guarda no session_state
-        models_found = df.iloc[1:][8].dropna().astype(str).str.strip().unique().tolist()
-        models_found = [m for m in models_found if m and m != "nan"]
-        if models_found:
+        # Detecta modelos únicos e guarda no session_state ao clicar no botão
+        if st.button("🔍 Analisar Ficheiro", type="secondary"):
+            models_found = df.iloc[1:][8].dropna().astype(str).str.strip().unique().tolist()
+            models_found = [m for m in models_found if m and m != "nan"]
             st.session_state["stussy_models"] = models_found
+            st.session_state["stussy_df"]     = df
+            st.info(f"✅ {len(models_found)} modelo(s) encontrado(s). Preenche as referências no sidebar e clica em Gerar Excel.")
 
         for i, row in df.iloc[1:].iterrows():
             if len(row) >= 18:
