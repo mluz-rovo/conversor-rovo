@@ -150,12 +150,12 @@ cols = [
     "Pr.Unit. Moeda", "Tabela de IVA", "Cor", "Tamanho",
     "TOTAL", "Destino", "Nº CPO", "Nº SPO",
     "Valor Unit. Fornecedor", "Total Fornecedor",
-    "Data Envio Cliente", "Data Envio Fornecedor",
+    "Data Envio Cliente", "Data Envio Fornecedor", "Notas",
 ]
 
 def make_row(ref="", des="", qty=0, price=0.0, vat=4, color="", size="",
              dest="", cpo="", spo="", supp_val="", supp_total="",
-             client_date="", supp_date="", currency=0):
+             client_date="", supp_date="", currency=0, notas=""):
     total = qty * price
     return {
         "Referência":             ref,
@@ -174,6 +174,7 @@ def make_row(ref="", des="", qty=0, price=0.0, vat=4, color="", size="",
         "Total Fornecedor":       supp_total,
         "Data Envio Cliente":     client_date,
         "Data Envio Fornecedor":  supp_date,
+        "Notas":                  notas,
     }
 
 def make_excel(df_final, group_col):
@@ -427,7 +428,8 @@ elif client == "Index":
     )
     st.session_state["index_df"] = edited_df
 
-    valid = edited_df[pd.to_numeric(edited_df["Quant."], errors="coerce").fillna(0) > 0]
+    valid = edited_df[pd.to_numeric(edited_df["Quant."], errors="coerce").fillna(0) > 0].copy()
+
     if not valid.empty:
         data_list = []
         for _, row in valid.iterrows():
