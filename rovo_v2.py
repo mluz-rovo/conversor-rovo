@@ -29,12 +29,17 @@ if client == "Stussy" and st.session_state.get("stussy_models"):
     st.sidebar.subheader("📝 Stussy — Referências PHC")
     for model in st.session_state["stussy_models"]:
         st.sidebar.caption(model)
-        stussy_ref_map[model] = st.sidebar.text_input(
+        ref = st.sidebar.text_input(
             "Reference (PHC)", key=f"ref_{model}", placeholder="e.g., AW24-001"
         )
-        stussy_des_map[model] = st.sidebar.text_input(
+        des = st.sidebar.text_input(
             "Designation (PHC)", key=f"des_{model}", placeholder="e.g., Box Logo Tee"
         )
+        stussy_ref_map[model] = ref
+        stussy_des_map[model] = des
+    # Guarda no session_state para persistir quando se clica em Gerar Excel
+    st.session_state["stussy_ref_map"] = stussy_ref_map
+    st.session_state["stussy_des_map"] = stussy_des_map
 
 st.title(f"📦 Converter: {client}")
 
@@ -186,6 +191,9 @@ if client == "Stussy":
         if st.button("✅ Gerar Excel"):
             try:
                 df = st.session_state["stussy_df"]
+                # Usa os mapas do session_state para garantir que os valores persistem
+                ref_map = st.session_state.get("stussy_ref_map", {})
+                des_map = st.session_state.get("stussy_des_map", {})
                 data_list = []
                 for i, row in df.iloc[1:].iterrows():
                     if len(row) >= 18:
@@ -201,8 +209,8 @@ if client == "Stussy":
                             po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
                             model  = str(row[8]).strip() if len(row) > 8 else ""
                             data_list.append({
-                                "Reference":           stussy_ref_map.get(model, ""),
-                                "Designation":         stussy_des_map.get(model, model),
+                                "Reference":           ref_map.get(model, ""),
+                                "Designation":         des_map.get(model, model),
                                 "Qty":                 q,
                                 "Unit Price":          0,
                                 "Unit Price Currency": p_val,
