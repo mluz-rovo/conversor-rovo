@@ -157,12 +157,14 @@ cols = [
 ]
 
 def make_excel(df_final, group_col):
+    if df_final.empty:
+        raise ValueError("Nenhum dado válido para gerar o Excel. Verifica o ficheiro e as referências.")
     out = io.BytesIO()
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         for val in df_final[group_col].unique():
             safe = re.sub(r"[\[\]*:?/\\]", "", str(val))[:31]
             df_final[df_final[group_col] == val][cols].to_excel(
-                writer, index=False, sheet_name=safe
+                writer, index=False, sheet_name=safe if safe else "Sheet1"
             )
     return out.getvalue()
 
@@ -189,7 +191,7 @@ if client == "Stussy":
             st.session_state["stussy_df"]     = df
             st.rerun()
 
-    if st.session_state.get("stussy_df") is not None:
+    if st.session_state.get("stussy_df") is not None and st.session_state.get("stussy_filename") == (uploaded_file.name if uploaded_file else ""):
         try:
             df = st.session_state["stussy_df"]
             data_list = []
