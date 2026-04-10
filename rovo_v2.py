@@ -10,7 +10,7 @@ st.sidebar.title("🚀 ROVO MENU")
 client = st.sidebar.selectbox("Select Client", ["Stussy", "Supreme", "Studio Nicholson", "Index"], key="client_select")
 
 # ===========================================================================
-# SIDEBAR — fields per client
+# SIDEBAR
 # ===========================================================================
 ref_manual = ""
 des_manual = ""
@@ -143,15 +143,38 @@ def parse_quantities_pdf(pdf_file) -> list:
     return rows
 
 # ===========================================================================
-# FINAL COLUMNS
+# COLUNAS FINAIS (PT)
 # ===========================================================================
 cols = [
-    "Reference", "Designation", "Qty", "Unit Price",
-    "Unit Price Currency", "VAT Table", "Color", "Size",
-    "TOTAL", "Destination", "CPO No.", "SPO No.",
-    "Supplier Unit Value", "Total Supplier",
-    "Client Shipment Date", "Supplier Shipment Date",
+    "Referência", "Designação", "Quant.", "Pr.Unit.",
+    "Pr.Unit. Moeda", "Tabela de IVA", "Cor", "Tamanho",
+    "TOTAL", "Destino", "Nº CPO", "Nº SPO",
+    "Valor Unit. Fornecedor", "Total Fornecedor",
+    "Data Envio Cliente", "Data Envio Fornecedor",
 ]
+
+def make_row(ref="", des="", qty=0, price=0.0, vat=4, color="", size="",
+             dest="", cpo="", spo="", supp_val="", supp_total="",
+             client_date="", supp_date="", currency=0):
+    total = qty * price
+    return {
+        "Referência":             ref,
+        "Designação":             des,
+        "Quant.":                 qty,
+        "Pr.Unit.":               price,
+        "Pr.Unit. Moeda":         currency,
+        "Tabela de IVA":          vat,
+        "Cor":                    color,
+        "Tamanho":                size,
+        "TOTAL":                  total,
+        "Destino":                dest,
+        "Nº CPO":                 cpo,
+        "Nº SPO":                 spo,
+        "Valor Unit. Fornecedor": supp_val,
+        "Total Fornecedor":       supp_total,
+        "Data Envio Cliente":     client_date,
+        "Data Envio Fornecedor":  supp_date,
+    }
 
 def make_excel(df_final, group_col):
     if df_final.empty:
@@ -205,28 +228,21 @@ if client == "Stussy":
                     po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
                     if not po or po == "nan":
                         po = "General"
-                    data_list.append({
-                        "Reference":              st.session_state.get(f"ref_{str(row[8]).strip()}", "") if n > 8 else "",
-                        "Designation":            st.session_state.get(f"des_{str(row[8]).strip()}", str(row[8]).strip()) if n > 8 else "",
-                        "Qty":                    q,
-                        "Unit Price":             0,
-                        "Unit Price Currency":    p_val,
-                        "VAT Table":              4,
-                        "Color":                  row[7] if n > 7 else "",
-                        "Size":                   row[9] if n > 9 else "",
-                        "TOTAL":                  q * p_val,
-                        "Destination":            row[4] if n > 4 else "General",
-                        "PO":                     po,
-                        "CPO No.":                "",
-                        "SPO No.":                "",
-                        "Supplier Unit Value":    "",
-                        "Total Supplier":         "",
-                        "Client Shipment Date":   "",
-                        "Supplier Shipment Date": "",
-                    })
+                    model = str(row[8]).strip() if n > 8 else ""
+                    data_list.append(make_row(
+                        ref      = st.session_state.get(f"ref_{model}", ""),
+                        des      = st.session_state.get(f"des_{model}", model),
+                        qty      = q,
+                        price    = 0,
+                        currency = p_val,
+                        color    = row[7] if n > 7 else "",
+                        size     = row[9] if n > 9 else "",
+                        dest     = row[4] if n > 4 else "General",
+                    ))
+                    data_list[-1]["Nº CPO"] = po
 
             df_final = pd.DataFrame(data_list).drop_duplicates()
-            excel    = make_excel(df_final, "PO")
+            excel    = make_excel(df_final, "Nº CPO")
             st.download_button(
                 f"⬇️ Download PHC Excel ({len(data_list)} rows)",
                 excel,
@@ -267,78 +283,39 @@ elif client == "Supreme":
                                 q = pd.to_numeric(df.iloc[i, c_idx], errors="coerce")
                                 if q and q > 0:
                                     p_val = p if pd.notna(p) else 0
-                                    data_list.append({
-                                        "Reference":              ref_manual,
-                                        "Designation":            des_manual,
-                                        "Qty":                    q,
-                                        "Unit Price":             0,
-                                        "Unit Price Currency":    p_val,
-                                        "VAT Table":              4,
-                                        "Color":                  df.iloc[i, 6],
-                                        "Size":                   s_name,
-                                        "TOTAL":                  q * p_val,
-                                        "Destination":            dest,
-                                        "CPO No.":                "",
-                                        "SPO No.":                "",
-                                        "Supplier Unit Value":    "",
-                                        "Total Supplier":         "",
-                                        "Client Shipment Date":   "",
-                                        "Supplier Shipment Date": "",
-                                    })
+                                    data_list.append(make_row(
+                                        ref=ref_manual, des=des_manual,
+                                        qty=q, currency=p_val,
+                                        color=df.iloc[i, 6], size=s_name, dest=dest,
+                                    ))
 
-            else:  # SMS and TOP — same structure
-                df = xl.parse(xl.sheet_names[0], header=None)
-
-                # Destination: Ship To — row 4 (index 3), column H (index 7)
+            else:  # SMS and TOP
+                df   = xl.parse(xl.sheet_names[0], header=None)
                 dest = str(df.iloc[3, 7]).strip() if pd.notna(df.iloc[3, 7]) else "General"
-
-                # Sizes: row 15 (index 14), columns I-M (indices 8-12)
-                sizes = {}
-                for c in range(8, 13):
-                    val = df.iloc[14, c]
-                    if pd.notna(val) and str(val).strip():
-                        sizes[c] = str(val).strip()
-
-                # Model: first non-empty cell in column A from row 18 (index 17)
+                sizes = {c: str(df.iloc[14, c]) for c in range(8, 13)
+                         if pd.notna(df.iloc[14, c]) and str(df.iloc[14, c]).strip()}
                 current_model = ""
                 for i in range(17, len(df)):
                     row = df.iloc[i]
-
                     if pd.notna(row[0]) and str(row[0]).strip():
                         current_model = str(row[0]).strip()
-
                     color = str(row[6]).strip() if pd.notna(row[6]) and str(row[6]).strip() else ""
                     if not color or color == "nan":
                         continue
-
                     p     = pd.to_numeric(row[14], errors="coerce") if pd.notna(row[14]) else 0
                     p_val = p if pd.notna(p) else 0
-
                     for c_idx, s_name in sizes.items():
                         q = pd.to_numeric(row[c_idx], errors="coerce")
                         if q and q > 0:
-                            data_list.append({
-                                "Reference":              ref_manual,
-                                "Designation":            des_manual,
-                                "Qty":                    q,
-                                "Unit Price":             0,
-                                "Unit Price Currency":    p_val,
-                                "VAT Table":              4,
-                                "Color":                  color,
-                                "Size":                   s_name,
-                                "TOTAL":                  q * p_val,
-                                "Destination":            dest,
-                                "CPO No.":                "",
-                                "SPO No.":                "",
-                                "Supplier Unit Value":    "",
-                                "Total Supplier":         "",
-                                "Client Shipment Date":   "",
-                                "Supplier Shipment Date": "",
-                            })
+                            data_list.append(make_row(
+                                ref=ref_manual, des=des_manual,
+                                qty=q, currency=p_val,
+                                color=color, size=s_name, dest=dest,
+                            ))
 
             if data_list:
                 df_final = pd.DataFrame(data_list).drop_duplicates()
-                excel    = make_excel(df_final, "Destination")
+                excel    = make_excel(df_final, "Destino")
                 st.success(f"✅ Conversion complete! {len(data_list)} rows generated.")
                 st.download_button("⬇️ Download PHC Excel", excel, f"IMPORT_Supreme_{supreme_type}.xlsx")
             else:
@@ -371,12 +348,8 @@ elif client == "Studio Nicholson":
         for i, (code, model_name) in enumerate(models):
             with cols_ui[i % 3]:
                 price = st.number_input(
-                    f"{code}",
-                    min_value=0.0,
-                    step=0.01,
-                    format="%.2f",
-                    key=f"price_{code}",
-                    help=model_name,
+                    f"{code}", min_value=0.0, step=0.01, format="%.2f",
+                    key=f"price_{code}", help=model_name,
                 )
                 price_map[code] = price
 
@@ -385,51 +358,38 @@ elif client == "Studio Nicholson":
                 data_list = []
                 for r in qty_rows:
                     unit_price = price_map.get(r["code"], 0)
-                    data_list.append({
-                        "Reference":              "",
-                        "Designation":            r["model"],
-                        "Qty":                    r["qty"],
-                        "Unit Price":             unit_price,
-                        "Unit Price Currency":    0,
-                        "VAT Table":              4,
-                        "Color":                  r["color"],
-                        "Size":                   r["size"],
-                        "TOTAL":                  r["qty"] * unit_price,
-                        "Destination":            r["destination"],
-                        "CPO No.":                "",
-                        "SPO No.":                "",
-                        "Supplier Unit Value":    "",
-                        "Total Supplier":         "",
-                        "Client Shipment Date":   "",
-                        "Supplier Shipment Date": "",
-                    })
-
+                    data_list.append(make_row(
+                        des=r["model"], qty=r["qty"], price=unit_price,
+                        color=r["color"], size=r["size"], dest=r["destination"],
+                    ))
                 df_final = pd.DataFrame(data_list).drop_duplicates()
-                excel    = make_excel(df_final, "Destination")
+                excel    = make_excel(df_final, "Destino")
                 st.success(f"✅ Conversion complete! {len(data_list)} rows generated.")
                 st.session_state["sn_excel"] = excel
             except Exception as e:
                 st.error(f"Error: {e}")
                 st.exception(e)
 
-    # ===========================================================================
+        if st.session_state.get("sn_excel"):
+            st.download_button("⬇️ Download PHC Excel", st.session_state["sn_excel"], "IMPORT_StudioNicholson.xlsx")
+
+# ===========================================================================
 # INDEX
 # ===========================================================================
 elif client == "Index":
     st.info("Fill in the table below and click Download to generate the Excel file.")
 
-    # Template vazio ou com linhas existentes no session_state
     empty_row = {
-        "Reference":              "",
-        "Designation":            "",
-        "Qty":                    0,
-        "Unit Price":             0.0,
-        "VAT Table":              4,
-        "Color":                  "",
-        "Size":                   "",
-        "Delivery Date":          "",
-        "SPO No.":                "",
-        "Supplier":               "",
+        "Referência":    "",
+        "Designação":    "",
+        "Quant.":        0,
+        "Pr.Unit.":      0.0,
+        "Tabela de IVA": 23,
+        "Cor":           "",
+        "Tamanho":       "",
+        "Delivery Date": "",
+        "Nº SPO":        "",
+        "Supplier":      "",
     }
 
     if "index_df" not in st.session_state:
@@ -450,56 +410,47 @@ elif client == "Index":
         use_container_width=True,
         num_rows="dynamic",
         column_config={
-            "Reference":   st.column_config.TextColumn("Reference"),
-            "Designation": st.column_config.TextColumn("Designation"),
-            "Qty":         st.column_config.NumberColumn("Qty", min_value=0, step=1, format="%d"),
-            "Unit Price":  st.column_config.NumberColumn("Unit Price", min_value=0.0, step=0.01, format="%.2f"),
-            "VAT Table":   st.column_config.NumberColumn("VAT Table", min_value=0, step=1, format="%d"),
-            "Color":       st.column_config.TextColumn("Color"),
-            "Size":        st.column_config.TextColumn("Size"),
+            "Referência":    st.column_config.TextColumn("Referência"),
+            "Designação":    st.column_config.TextColumn("Designação"),
+            "Quant.":        st.column_config.NumberColumn("Quant.", min_value=0, step=1, format="%d"),
+            "Pr.Unit.":      st.column_config.NumberColumn("Pr.Unit.", min_value=0.0, step=0.01, format="%.2f"),
+            "Tabela de IVA": st.column_config.NumberColumn("Tabela de IVA", min_value=0, step=1, format="%d"),
+            "Cor":           st.column_config.TextColumn("Cor"),
+            "Tamanho":       st.column_config.TextColumn("Tamanho"),
             "Delivery Date": st.column_config.TextColumn("Delivery Date"),
-            "SPO No.":     st.column_config.TextColumn("SPO No."),
-            "Supplier":    st.column_config.TextColumn("Supplier"),
+            "Nº SPO":        st.column_config.TextColumn("Nº SPO"),
+            "Supplier":      st.column_config.TextColumn("Supplier"),
         },
         key="index_editor"
     )
     st.session_state["index_df"] = edited_df
 
-    # Gera Excel
-    valid = edited_df[edited_df["Qty"].astype(str).str.strip().replace("0", "").astype(bool)]
+    valid = edited_df[pd.to_numeric(edited_df["Quant."], errors="coerce").fillna(0) > 0]
     if not valid.empty:
-        # Mapeia para as colunas finais do PHC
-        index_cols = [
-            "Reference", "Designation", "Qty", "Unit Price",
-            "Unit Price Currency", "VAT Table", "Color", "Size",
-            "TOTAL", "Destination", "CPO No.", "SPO No.",
-            "Supplier Unit Value", "Total Supplier",
-            "Client Shipment Date", "Supplier Shipment Date",
-        ]
-        out_df = pd.DataFrame()
-        out_df["Reference"]              = valid["Reference"]
-        out_df["Designation"]            = valid["Designation"]
-        out_df["Qty"]                    = pd.to_numeric(valid["Qty"], errors="coerce").fillna(0)
-        out_df["Unit Price"]             = pd.to_numeric(valid["Unit Price"], errors="coerce").fillna(0)
-        out_df["Unit Price Currency"]    = 0
-        out_df["VAT Table"]              = valid["VAT Table"]
-        out_df["Color"]                  = valid["Color"]
-        out_df["Size"]                   = valid["Size"]
-        out_df["TOTAL"]                  = out_df["Qty"] * out_df["Unit Price"]
-        out_df["Destination"]            = valid["Supplier"]
-        out_df["CPO No."]                = ""
-        out_df["SPO No."]                = valid["SPO No."]
-        out_df["Supplier Unit Value"]    = ""
-        out_df["Total Supplier"]         = ""
-        out_df["Client Shipment Date"]   = valid["Delivery Date"]
-        out_df["Supplier Shipment Date"] = ""
+        data_list = []
+        for _, row in valid.iterrows():
+            qty   = pd.to_numeric(row["Quant."], errors="coerce") or 0
+            price = pd.to_numeric(row["Pr.Unit."], errors="coerce") or 0
+            data_list.append(make_row(
+                ref        = row["Referência"],
+                des        = row["Designação"],
+                qty        = qty,
+                price      = price,
+                vat        = row["Tabela de IVA"],
+                color      = row["Cor"],
+                size       = row["Tamanho"],
+                dest       = row["Supplier"],
+                spo        = row["Nº SPO"],
+                client_date= row["Delivery Date"],
+            ))
 
+        df_final = pd.DataFrame(data_list)
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
-            out_df[index_cols].to_excel(writer, index=False, sheet_name="Index")
+            df_final[cols].to_excel(writer, index=False, sheet_name="Index")
 
         st.download_button(
-            f"⬇️ Download PHC Excel ({len(out_df)} rows)",
+            f"⬇️ Download PHC Excel ({len(data_list)} rows)",
             out.getvalue(),
             "IMPORT_Index.xlsx",
             key="dl_index"
