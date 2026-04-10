@@ -28,14 +28,14 @@ stussy_ref = ""
 stussy_des = ""
 if client == "Stussy":
     st.sidebar.write("---")
-    st.sidebar.subheader("📝 Stussy — Referências PHC")
+    st.sidebar.subheader("📝 Stussy — PHC References")
     if st.session_state.get("stussy_models"):
         for model in st.session_state["stussy_models"]:
             st.sidebar.caption(model)
             st.sidebar.text_input("Reference (PHC)", key=f"ref_{model}", placeholder="e.g., AW24-001")
             st.sidebar.text_input("Designation (PHC)", key=f"des_{model}", placeholder="e.g., Box Logo Tee")
     else:
-        st.sidebar.caption("Faz upload e clica em Analisar Ficheiro.")
+        st.sidebar.caption("Upload a file and click Analyse File.")
 
 st.title(f"📦 Converter: {client}")
 
@@ -182,7 +182,7 @@ if client == "Stussy":
                 st.session_state.pop(key, None)
             st.session_state["stussy_filename"] = uploaded_file.name
 
-        if st.button("🔍 Analisar Ficheiro", type="secondary"):
+        if st.button("🔍 Analyse File", type="secondary"):
             xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
             sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
             df = xl.parse(sheet_name, header=None)
@@ -233,7 +233,7 @@ if client == "Stussy":
             df_final = pd.DataFrame(data_list).drop_duplicates()
             excel    = make_excel(df_final, "PO")
             st.download_button(
-                f"⬇️ Download PHC Excel ({len(data_list)} linhas)",
+                f"⬇️ Download PHC Excel ({len(data_list)} rows)",
                 excel,
                 "IMPORT_Stussy.xlsx",
                 key="dl_stussy"
@@ -246,7 +246,7 @@ if client == "Stussy":
 # SUPREME
 # ===========================================================================
 elif client == "Supreme":
-    supreme_type = st.radio("Tipo de ficheiro", ["Bulk", "SMS", "TOP"], horizontal=True)
+    supreme_type = st.radio("File Type", ["Bulk", "SMS", "TOP"], horizontal=True)
     uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
 
     if uploaded_file:
@@ -348,19 +348,19 @@ elif client == "Supreme":
             if data_list:
                 df_final = pd.DataFrame(data_list).drop_duplicates()
                 excel    = make_excel(df_final, "Destination")
-                st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
+                st.success(f"✅ Conversion complete! {len(data_list)} rows generated.")
                 st.download_button("⬇️ Download PHC Excel", excel, f"IMPORT_Supreme_{supreme_type}.xlsx")
             else:
-                st.warning("Nenhum dado válido encontrado.")
+                st.warning("No valid data found. Please check the file.")
         except Exception as e:
-            st.error(f"Erro: {e}")
+            st.error(f"Error: {e}")
             st.exception(e)
 
 # ===========================================================================
 # STUDIO NICHOLSON
 # ===========================================================================
 elif client == "Studio Nicholson":
-    uploaded_file = st.file_uploader("Upload PDF Quantidades", type=["pdf"])
+    uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
 
     if uploaded_file:
         file_bytes = uploaded_file.read()
