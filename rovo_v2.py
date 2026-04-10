@@ -33,10 +33,14 @@ stussy_ref = ""
 stussy_des = ""
 if client == "Stussy":
     st.sidebar.write("---")
-    st.sidebar.subheader("📝 Stussy Fixed Data")
-    stussy_ref = st.sidebar.text_input("Reference (PHC)", placeholder="e.g., AW24-001")
-    stussy_des = st.sidebar.text_input("Designation (PHC)", placeholder="e.g., Box Logo Tee")
-    st.sidebar.caption("These values will be applied to all rows in the file.")
+    st.sidebar.subheader("📝 Stussy — Referências PHC")
+    if st.session_state.get("stussy_models"):
+        for model in st.session_state["stussy_models"]:
+            st.sidebar.caption(model)
+            st.sidebar.text_input("Reference (PHC)", key=f"ref_{model}", placeholder="e.g., AW24-001")
+            st.sidebar.text_input("Designation (PHC)", key=f"des_{model}", placeholder="e.g., Box Logo Tee")
+    else:
+        st.sidebar.caption("Faz upload e clica em Analisar Ficheiro.")
 
 st.title(f"📦 Converter: {client}")
 
@@ -182,7 +186,7 @@ if client == "Stussy":
             models_found = [m for m in models_found if m and m != "nan"]
             st.session_state["stussy_models"] = models_found
             st.session_state["stussy_df"]     = df
-            st.info(f"✅ {len(models_found)} modelo(s) encontrado(s). Preenche as referências no sidebar.")
+            st.info(f"✅ {len(models_found)} modelo(s) encontrado(s): **{', '.join(models_found)}**")
 
     if st.session_state.get("stussy_df") is not None:
         try:
@@ -201,8 +205,8 @@ if client == "Stussy":
                         po_raw = row[2] if len(row) > 2 else ""
                         po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
                         data_list.append({
-                            "Reference":           stussy_ref,
-                            "Designation":         stussy_des,
+                            "Reference":           st.session_state.get(f"ref_{str(row[8]).strip()}", ""),
+                            "Designation":         st.session_state.get(f"des_{str(row[8]).strip()}", str(row[8]).strip()),
                             "Qty":                 q,
                             "Unit Price":          0,
                             "Unit Price Currency": p_val,
