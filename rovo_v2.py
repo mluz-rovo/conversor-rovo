@@ -183,7 +183,8 @@ def make_excel(df_final, group_col):
     with pd.ExcelWriter(out, engine="openpyxl") as writer:
         for val in df_final[group_col].unique():
             safe = re.sub(r"[\[\]*:?/\\]", "", str(val))[:31]
-            df_final[df_final[group_col] == val][cols].to_excel(
+            output_cols = [c for c in cols if c in df_final.columns]
+            df_final[df_final[group_col] == val][output_cols].to_excel(
                 writer, index=False, sheet_name=safe if safe else "Sheet1"
             )
     return out.getvalue()
@@ -229,7 +230,7 @@ if client == "Stussy":
                     if not po or po == "nan":
                         po = "General"
                     model = str(row[8]).strip() if n > 8 else ""
-                    data_list.append(make_row(
+                    r = make_row(
                         ref      = st.session_state.get(f"ref_{model}", ""),
                         des      = st.session_state.get(f"des_{model}", model),
                         qty      = q,
@@ -238,11 +239,12 @@ if client == "Stussy":
                         color    = row[7] if n > 7 else "",
                         size     = row[9] if n > 9 else "",
                         dest     = row[4] if n > 4 else "General",
-                    ))
-                    data_list[-1]["Nº CPO"] = po
+                    )
+                    r["PO"] = po
+                    data_list.append(r)
 
             df_final = pd.DataFrame(data_list).drop_duplicates()
-            excel    = make_excel(df_final, "Nº CPO")
+            excel    = make_excel(df_final, "PO")
             st.download_button(
                 f"⬇️ Download PHC Excel ({len(data_list)} rows)",
                 excel,
