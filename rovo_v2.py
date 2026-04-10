@@ -235,7 +235,7 @@ if client == "Stussy":
             df_final = pd.DataFrame(data_list).drop_duplicates()
             excel    = make_excel(df_final, "PO")
             st.download_button(
-                f"⬇️ Download PHC Excel ({len(data_list)} linhas)",
+                f"⬇️ Download PHC Excel",
                 excel,
                 "IMPORT_Stussy.xlsx",
                 key="dl_stussy"
