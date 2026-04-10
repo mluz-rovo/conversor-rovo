@@ -314,6 +314,7 @@ elif client == "Supreme":
                                 ref=ref_manual, des=des_manual,
                                 qty=q, currency=p_val,
                                 color=color, size=s_name, dest=dest,
+                                notas="preço unitário com surcharge" if supreme_type == "SMS" else "",
                             ))
 
             if data_list:
