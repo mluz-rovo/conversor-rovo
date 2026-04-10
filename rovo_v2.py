@@ -181,7 +181,7 @@ if client == "Stussy":
             models_found = [m for m in models_found if m and m != "nan"]
             st.session_state["stussy_models"] = models_found
             st.session_state["stussy_df"]     = df
-            st.info(f"✅ {len(models_found)} modelo(s) encontrado(s): **{', '.join(models_found)}**")
+            st.rerun()
 
     if st.session_state.get("stussy_df") is not None:
         try:
