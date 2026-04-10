@@ -7,15 +7,14 @@ import re
 st.set_page_config(page_title="ROVO - Universal Converter", page_icon="🚀", layout="wide")
 
 st.sidebar.title("🚀 ROVO MENU")
-client = st.sidebar.selectbox("Select Client", ["Stussy", "Supreme", "Studio Nicholson"])
+client = st.sidebar.selectbox("Select Client", ["Stussy", "Supreme", "Studio Nicholson"], key="client_select")
 
-# Limpa session_state do Stussy quando muda de cliente
-if "last_client" not in st.session_state:
-    st.session_state["last_client"] = client
-if st.session_state["last_client"] != client:
+# Limpa session_state do Stussy só quando muda de cliente
+prev = st.session_state.get("last_client")
+if prev is not None and prev != client:
     for key in ["stussy_models", "stussy_df", "stussy_ref_map", "stussy_des_map", "stussy_excel", "stussy_lines"]:
         st.session_state.pop(key, None)
-    st.session_state["last_client"] = client
+st.session_state["last_client"] = client
 
 # ===========================================================================
 # SIDEBAR — campos por cliente
@@ -30,24 +29,14 @@ if client == "Supreme":
     des_manual = st.sidebar.text_input("Designation (PHC)", placeholder="e.g., Box Logo Hooded")
     st.sidebar.caption("These values will be applied to all rows in the file.")
 
-stussy_ref_map = {}
-stussy_des_map = {}
-if client == "Stussy" and st.session_state.get("stussy_models"):
+stussy_ref = ""
+stussy_des = ""
+if client == "Stussy":
     st.sidebar.write("---")
-    st.sidebar.subheader("📝 Stussy — Referências PHC")
-    for model in st.session_state["stussy_models"]:
-        st.sidebar.caption(model)
-        ref = st.sidebar.text_input(
-            "Reference (PHC)", key=f"ref_{model}", placeholder="e.g., AW24-001"
-        )
-        des = st.sidebar.text_input(
-            "Designation (PHC)", key=f"des_{model}", placeholder="e.g., Box Logo Tee"
-        )
-        stussy_ref_map[model] = ref
-        stussy_des_map[model] = des
-    # Guarda no session_state para persistir quando se clica em Gerar Excel
-    st.session_state["stussy_ref_map"] = stussy_ref_map
-    st.session_state["stussy_des_map"] = stussy_des_map
+    st.sidebar.subheader("📝 Stussy Fixed Data")
+    stussy_ref = st.sidebar.text_input("Reference (PHC)", placeholder="e.g., AW24-001")
+    stussy_des = st.sidebar.text_input("Designation (PHC)", placeholder="e.g., Box Logo Tee")
+    st.sidebar.caption("These values will be applied to all rows in the file.")
 
 st.title(f"📦 Converter: {client}")
 
@@ -195,11 +184,9 @@ if client == "Stussy":
             st.session_state["stussy_df"]     = df
             st.info(f"✅ {len(models_found)} modelo(s) encontrado(s). Preenche as referências no sidebar.")
 
-    if st.session_state.get("stussy_df") is not None:
+        if st.session_state.get("stussy_df") is not None:
         try:
             df = st.session_state["stussy_df"]
-            ref_map = st.session_state.get("stussy_ref_map", {})
-            des_map = st.session_state.get("stussy_des_map", {})
             data_list = []
             for i, row in df.iloc[1:].iterrows():
                 if len(row) >= 18:
@@ -213,10 +200,9 @@ if client == "Stussy":
                         p_val  = p if pd.notna(p) else 0
                         po_raw = row[2] if len(row) > 2 else ""
                         po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
-                        model  = str(row[8]).strip() if len(row) > 8 else ""
                         data_list.append({
-                            "Reference":           ref_map.get(model, ""),
-                            "Designation":         des_map.get(model, model),
+                            "Reference":           stussy_ref,
+                            "Designation":         stussy_des,
                             "Qty":                 q,
                             "Unit Price":          0,
                             "Unit Price Currency": p_val,
@@ -235,7 +221,7 @@ if client == "Stussy":
             df_final = pd.DataFrame(data_list).drop_duplicates()
             excel    = make_excel(df_final, "PO")
             st.download_button(
-                f"⬇️ Download PHC Excel",
+                f"⬇️ Download PHC Excel ({len(data_list)} linhas)",
                 excel,
                 "IMPORT_Stussy.xlsx",
                 key="dl_stussy"
