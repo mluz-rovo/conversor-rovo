@@ -183,7 +183,7 @@ if client == "Stussy":
             st.info(f"✅ {len(models_found)} modelo(s) encontrado(s). Preenche as referências no sidebar.")
 
     if st.session_state.get("stussy_df") is not None:
-        if st.button("✅ Gerar Excel", type="primary"):
+        if st.button("✅ Gerar Excel"):
             try:
                 df = st.session_state["stussy_df"]
                 data_list = []
