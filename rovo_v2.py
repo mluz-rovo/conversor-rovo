@@ -173,6 +173,12 @@ if client == "Stussy":
     uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
 
     if uploaded_file:
+        # Se o ficheiro mudou, limpa o estado anterior
+        if st.session_state.get("stussy_filename") != uploaded_file.name:
+            for key in ["stussy_models", "stussy_df"]:
+                st.session_state.pop(key, None)
+            st.session_state["stussy_filename"] = uploaded_file.name
+
         if st.button("🔍 Analisar Ficheiro", type="secondary"):
             xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
             sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
@@ -220,7 +226,7 @@ if client == "Stussy":
             df_final = pd.DataFrame(data_list).drop_duplicates()
             excel    = make_excel(df_final, "PO")
             st.download_button(
-                f"⬇️ Download PHC Excel",
+                f"⬇️ Download PHC Excel ({len(data_list)} linhas)",
                 excel,
                 "IMPORT_Stussy.xlsx",
                 key="dl_stussy"
