@@ -19,6 +19,21 @@ if client == "Supreme":
     des_manual = st.sidebar.text_input("Designation (PHC)", placeholder="e.g., Box Logo Hooded")
     st.sidebar.caption("These values will be applied to all rows in the file.")
 
+# Sidebar para Stussy — campos por modelo
+stussy_ref_map = {}
+stussy_des_map = {}
+if client == "Stussy" and st.session_state.get("stussy_models"):
+    st.sidebar.write("---")
+    st.sidebar.subheader("📝 Stussy — Referências PHC")
+    for model in st.session_state["stussy_models"]:
+        st.sidebar.caption(f"**{model}**")
+        stussy_ref_map[model] = st.sidebar.text_input(
+            "Reference (PHC)", key=f"ref_{model}", placeholder="e.g., AW24-001"
+        )
+        stussy_des_map[model] = st.sidebar.text_input(
+            "Designation (PHC)", key=f"des_{model}", placeholder="e.g., Box Logo Tee"
+        )
+
 st.title(f"📦 Converter: {client}")
 
 # ===========================================================================
@@ -62,12 +77,10 @@ def parse_quantities_pdf(pdf_file) -> list:
 
                 # 1. DESTINO
                 if l_up.startswith("SHIP TO"):
-                    # Tenta extrair da mesma linha
                     dest_raw = re.sub(r"^SHIP\s+TO\s*", "", line, flags=re.I)
                     dest_raw = re.sub(r"Ship\s+To:.*$", "", dest_raw, flags=re.I).strip()
                     if " - " in dest_raw:
                         dest_raw = dest_raw.split(" - ")[-1].strip()
-                    # Se ficou vazio ou muito curto, usa a linha seguinte
                     if len(dest_raw) < 3 and idx + 1 < len(lines):
                         dest_raw = lines[idx + 1].strip()
                     if dest_raw:
@@ -106,13 +119,11 @@ def parse_quantities_pdf(pdf_file) -> list:
                     log.append(f"NOT PRODUCT ({first_word!r}) → {repr(line[:60])}")
                     continue
 
-                # Quantidades: números entre a cor e o €
                 before_euro = line.split("€")[0] if "€" in line else line
                 normalized  = re.sub(r"(?<!\w)[-–](?!\w)", " ", before_euro)
                 nums = re.findall(r"\b(\d+)\b", normalized)
                 qty_values = [int(n) for n in nums][:-1] if len(nums) > 1 else [int(n) for n in nums]
 
-                # Cor: última(s) palavra(s) antes dos números
                 before_nums = re.split(r"\s+\d", normalized)[0]
                 color_tokens = [
                     t for t in before_nums.split()
@@ -139,7 +150,6 @@ def parse_quantities_pdf(pdf_file) -> list:
                             "destination": current_dest,
                         })
 
-    # Mostra log
     with st.expander("🐛 Debug linha a linha", expanded=True):
         for entry in log:
             st.text(entry)
@@ -177,6 +187,12 @@ try:
         sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
         df = xl.parse(sheet_name, header=None)
 
+        # Detecta modelos únicos (coluna I = índice 8) e guarda no session_state
+        models_found = df.iloc[1:][8].dropna().astype(str).str.strip().unique().tolist()
+        models_found = [m for m in models_found if m and m != "nan"]
+        if models_found:
+            st.session_state["stussy_models"] = models_found
+
         for i, row in df.iloc[1:].iterrows():
             if len(row) >= 18:
                 q = pd.to_numeric(row[12], errors="coerce")
@@ -186,10 +202,13 @@ try:
                 else:
                     p = pd.to_numeric(p_raw, errors="coerce")
                 if q and q > 0:
-                    p_val = p if pd.notna(p) else 0
+                    p_val   = p if pd.notna(p) else 0
+                    po_raw  = row[2] if len(row) > 2 else ""
+                    po      = str(po_raw).strip() if pd.notna(po_raw) else "General"
+                    model   = str(row[8]).strip() if len(row) > 8 else ""
                     data_list.append({
-                        "Reference":           "",
-                        "Designation":         row[8] if len(row) > 8 else "",
+                        "Reference":           stussy_ref_map.get(model, ""),
+                        "Designation":         stussy_des_map.get(model, model),
                         "Qty":                 q,
                         "Unit Price":          0,
                         "Unit Price Currency": p_val,
@@ -198,6 +217,7 @@ try:
                         "Size":                row[9] if len(row) > 9 else "",
                         "TOTAL":               q * p_val,
                         "Destination":         row[4] if len(row) > 4 else "General",
+                        "PO":                  po,
                         "CPO No.":             "",
                         "SPO No.":             "",
                         "Supplier Unit Value": "",
@@ -250,15 +270,15 @@ try:
             st.write(f"Total linhas: {len(qty_rows)}")
             st.write(qty_rows[:30])
 
-        if qty_rows:
-            # Extrai modelos únicos para o utilizador introduzir preços
+        if st.session_state.get("sn_rows"):
+            qty_rows = st.session_state["sn_rows"]
             models = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
 
             st.subheader("💶 Introduz o preço unitário por modelo")
             price_map = {}
             cols_ui = st.columns(min(len(models), 3))
-            for idx, (code, model_name) in enumerate(models):
-                with cols_ui[idx % 3]:
+            for i, (code, model_name) in enumerate(models):
+                with cols_ui[i % 3]:
                     price = st.number_input(
                         f"{code}",
                         min_value=0.0,
@@ -270,35 +290,66 @@ try:
                     price_map[code] = price
 
             if st.button("✅ Gerar Excel", type="primary"):
-                for r in qty_rows:
-                    unit_price = price_map.get(r["code"], 0)
-                    data_list.append({
-                        "Reference":           "",
-                        "Designation":         r["model"],
-                        "Qty":                 r["qty"],
-                        "Unit Price":          unit_price,
-                        "Unit Price Currency": 0,
-                        "VAT Table":           4,
-                        "Color":               r["color"],
-                        "Size":                r["size"],
-                        "TOTAL":               r["qty"] * unit_price,
-                        "Destination":         r["destination"],
-                        "CPO No.":             "",
-                        "SPO No.":             "",
-                        "Supplier Unit Value": "",
-                        "Total Supplier":      "",
-                    })
+                try:
+                    data_list = []
+                    for r in qty_rows:
+                        unit_price = price_map.get(r["code"], 0)
+                        data_list.append({
+                            "Reference":           "",
+                            "Designation":         r["model"],
+                            "Qty":                 r["qty"],
+                            "Unit Price":          unit_price,
+                            "Unit Price Currency": 0,
+                            "VAT Table":           4,
+                            "Color":               r["color"],
+                            "Size":                r["size"],
+                            "TOTAL":               r["qty"] * unit_price,
+                            "Destination":         r["destination"],
+                            "CPO No.":             "",
+                            "SPO No.":             "",
+                            "Supplier Unit Value": "",
+                            "Total Supplier":      "",
+                        })
 
-    # ── OUTPUT ───────────────────────────────────────────────────────────
+                    df_final = pd.DataFrame(data_list).drop_duplicates()
+                    out = io.BytesIO()
+                    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+                        for dest in df_final["Destination"].unique():
+                            safe_name = re.sub(r"[\[\]*:?/\\]", "", str(dest))[:31]
+                            df_final[df_final["Destination"] == dest][cols].to_excel(
+                                writer, index=False, sheet_name=safe_name
+                            )
+                    st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
+                    st.session_state["sn_excel"] = out.getvalue()
+                except Exception as e:
+                    st.error(f"Erro ao gerar Excel: {e}")
+                    st.exception(e)
+
+            if st.session_state.get("sn_excel"):
+                st.download_button(
+                    "⬇️ Download PHC Excel",
+                    st.session_state["sn_excel"],
+                    "IMPORT_StudioNicholson.xlsx"
+                )
+
+    # ── OUTPUT — STUSSY & SUPREME ─────────────────────────────────────────
     if data_list:
         df_final = pd.DataFrame(data_list).drop_duplicates()
         out = io.BytesIO()
         with pd.ExcelWriter(out, engine="openpyxl") as writer:
-            for dest in df_final["Destination"].unique():
-                safe_name = re.sub(r"[\[\]*:?/\\]", "", str(dest))[:31]
-                df_final[df_final["Destination"] == dest][cols].to_excel(
-                    writer, index=False, sheet_name=safe_name
-                )
+            if client == "Stussy":
+                # Uma aba por PO
+                for po in df_final["PO"].unique():
+                    safe_name = re.sub(r"[\[\]*:?/\\]", "", str(po))[:31]
+                    df_final[df_final["PO"] == po][cols].to_excel(
+                        writer, index=False, sheet_name=safe_name
+                    )
+            else:
+                for dest in df_final["Destination"].unique():
+                    safe_name = re.sub(r"[\[\]*:?/\\]", "", str(dest))[:31]
+                    df_final[df_final["Destination"] == dest][cols].to_excel(
+                        writer, index=False, sheet_name=safe_name
+                    )
         st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
         st.download_button("⬇️ Download PHC Excel", out.getvalue(), f"IMPORT_{client}.xlsx")
 
