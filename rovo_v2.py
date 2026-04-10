@@ -196,34 +196,36 @@ if client == "Stussy":
             df = st.session_state["stussy_df"]
             data_list = []
             for i, row in df.iloc[1:].iterrows():
-                if len(row) >= 18:
-                    q = pd.to_numeric(row[12], errors="coerce")
-                    p_raw = row[17]
-                    if isinstance(p_raw, str):
-                        p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
-                    else:
-                        p = pd.to_numeric(p_raw, errors="coerce")
-                    if q and q > 0:
-                        p_val  = p if pd.notna(p) else 0
-                        po_raw = row[2] if len(row) > 2 else ""
-                        po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
-                        data_list.append({
-                            "Reference":           st.session_state.get(f"ref_{str(row[8]).strip()}", ""),
-                            "Designation":         st.session_state.get(f"des_{str(row[8]).strip()}", str(row[8]).strip()),
-                            "Qty":                 q,
-                            "Unit Price":          0,
-                            "Unit Price Currency": p_val,
-                            "VAT Table":           4,
-                            "Color":               row[7] if len(row) > 7 else "",
-                            "Size":                row[9] if len(row) > 9 else "",
-                            "TOTAL":               q * p_val,
-                            "Destination":         row[4] if len(row) > 4 else "General",
-                            "PO":                  po,
-                            "CPO No.":             "",
-                            "SPO No.":             "",
-                            "Supplier Unit Value": "",
-                            "Total Supplier":      "",
-                        })
+                n = len(row)
+                q = pd.to_numeric(row[12], errors="coerce") if n > 12 else None
+                p_raw = row[17] if n > 17 else (row[13] if n > 13 else None)
+                if isinstance(p_raw, str):
+                    p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
+                else:
+                    p = pd.to_numeric(p_raw, errors="coerce") if p_raw is not None else None
+                if q and q > 0:
+                    p_val  = p if p is not None and pd.notna(p) else 0
+                    po_raw = row[2] if n > 2 else ""
+                    po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
+                    if not po or po == "nan":
+                        po = "General"
+                    data_list.append({
+                        "Reference":           st.session_state.get(f"ref_{str(row[8]).strip()}", "") if n > 8 else "",
+                        "Designation":         st.session_state.get(f"des_{str(row[8]).strip()}", str(row[8]).strip()) if n > 8 else "",
+                        "Qty":                 q,
+                        "Unit Price":          0,
+                        "Unit Price Currency": p_val,
+                        "VAT Table":           4,
+                        "Color":               row[7] if n > 7 else "",
+                        "Size":                row[9] if n > 9 else "",
+                        "TOTAL":               q * p_val,
+                        "Destination":         row[4] if n > 4 else "General",
+                        "PO":                  po,
+                        "CPO No.":             "",
+                        "SPO No.":             "",
+                        "Supplier Unit Value": "",
+                        "Total Supplier":      "",
+                    })
 
             df_final = pd.DataFrame(data_list).drop_duplicates()
             excel    = make_excel(df_final, "PO")
@@ -241,16 +243,51 @@ if client == "Stussy":
 # SUPREME
 # ===========================================================================
 elif client == "Supreme":
+    supreme_type = st.radio("Tipo de ficheiro", ["Bulk", "SMS"], horizontal=True)
     uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
 
     if uploaded_file:
         try:
             data_list = []
             xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-            for sheet in xl.sheet_names:
-                if "TOTAL" in sheet.upper():
-                    continue
-                df = xl.parse(sheet, header=None)
+
+            if supreme_type == "Bulk":
+                for sheet in xl.sheet_names:
+                    if "TOTAL" in sheet.upper():
+                        continue
+                    df = xl.parse(sheet, header=None)
+                    sizes = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
+                    for start in range(16, len(df), 14):
+                        dest = str(df.iloc[start, 0]).strip()
+                        if not dest or dest == "nan":
+                            dest = "General"
+                        for i in range(start + 1, start + 13):
+                            if i >= len(df) or pd.isna(df.iloc[i, 6]):
+                                continue
+                            p = pd.to_numeric(df.iloc[i, 17], errors="coerce")
+                            for c_idx, s_name in sizes.items():
+                                q = pd.to_numeric(df.iloc[i, c_idx], errors="coerce")
+                                if q and q > 0:
+                                    p_val = p if pd.notna(p) else 0
+                                    data_list.append({
+                                        "Reference":           ref_manual,
+                                        "Designation":         des_manual,
+                                        "Qty":                 q,
+                                        "Unit Price":          0,
+                                        "Unit Price Currency": p_val,
+                                        "VAT Table":           4,
+                                        "Color":               df.iloc[i, 6],
+                                        "Size":                s_name,
+                                        "TOTAL":               q * p_val,
+                                        "Destination":         dest,
+                                        "CPO No.":             "",
+                                        "SPO No.":             "",
+                                        "Supplier Unit Value": "",
+                                        "Total Supplier":      "",
+                                    })
+
+            else:  # SMS — sheet única
+                df = xl.parse(xl.sheet_names[0], header=None)
                 sizes = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
                 for start in range(16, len(df), 14):
                     dest = str(df.iloc[start, 0]).strip()
@@ -285,7 +322,7 @@ elif client == "Supreme":
                 df_final = pd.DataFrame(data_list).drop_duplicates()
                 excel    = make_excel(df_final, "Destination")
                 st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
-                st.download_button("⬇️ Download PHC Excel", excel, "IMPORT_Supreme.xlsx")
+                st.download_button("⬇️ Download PHC Excel", excel, f"IMPORT_Supreme_{supreme_type}.xlsx")
             else:
                 st.warning("Nenhum dado válido encontrado.")
         except Exception as e:
