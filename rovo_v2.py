@@ -154,6 +154,7 @@ cols = [
     "Unit Price Currency", "VAT Table", "Color", "Size",
     "TOTAL", "Destination", "CPO No.", "SPO No.",
     "Supplier Unit Value", "Total Supplier",
+    "Client Shipment Date", "Supplier Shipment Date",
 ]
 
 def make_excel(df_final, group_col):
@@ -221,10 +222,12 @@ if client == "Stussy":
                         "TOTAL":               q * p_val,
                         "Destination":         row[4] if n > 4 else "General",
                         "PO":                  po,
-                        "CPO No.":             "",
-                        "SPO No.":             "",
-                        "Supplier Unit Value": "",
-                        "Total Supplier":      "",
+                        "CPO No.":                 "",
+                        "SPO No.":                 "",
+                        "Supplier Unit Value":     "",
+                        "Total Supplier":          "",
+                        "Client Shipment Date":    "",
+                        "Supplier Shipment Date":  "",
                     })
 
             df_final = pd.DataFrame(data_list).drop_duplicates()
@@ -243,7 +246,7 @@ if client == "Stussy":
 # SUPREME
 # ===========================================================================
 elif client == "Supreme":
-    supreme_type = st.radio("Tipo de ficheiro", ["Bulk", "SMS"], horizontal=True)
+    supreme_type = st.radio("Tipo de ficheiro", ["Bulk", "SMS", "TOP"], horizontal=True)
     uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
 
     if uploaded_file:
@@ -270,23 +273,25 @@ elif client == "Supreme":
                                 if q and q > 0:
                                     p_val = p if pd.notna(p) else 0
                                     data_list.append({
-                                        "Reference":           ref_manual,
-                                        "Designation":         des_manual,
-                                        "Qty":                 q,
-                                        "Unit Price":          0,
-                                        "Unit Price Currency": p_val,
-                                        "VAT Table":           4,
-                                        "Color":               df.iloc[i, 6],
-                                        "Size":                s_name,
-                                        "TOTAL":               q * p_val,
-                                        "Destination":         dest,
-                                        "CPO No.":             "",
-                                        "SPO No.":             "",
-                                        "Supplier Unit Value": "",
-                                        "Total Supplier":      "",
+                                        "Reference":               ref_manual,
+                                        "Designation":             des_manual,
+                                        "Qty":                     q,
+                                        "Unit Price":              0,
+                                        "Unit Price Currency":     p_val,
+                                        "VAT Table":               4,
+                                        "Color":                   df.iloc[i, 6],
+                                        "Size":                    s_name,
+                                        "TOTAL":                   q * p_val,
+                                        "Destination":             dest,
+                                        "CPO No.":                 "",
+                                        "SPO No.":                 "",
+                                        "Supplier Unit Value":     "",
+                                        "Total Supplier":          "",
+                                        "Client Shipment Date":    "",
+                                        "Supplier Shipment Date":  "",
                                     })
 
-            else:  # SMS — sheet única com estrutura específica
+            else:  # SMS e TOP — mesma estrutura
                 df = xl.parse(xl.sheet_names[0], header=None)
 
                 # Destino: Ship To — linha 4 (índice 3), coluna H (índice 7)
@@ -322,20 +327,22 @@ elif client == "Supreme":
                         q = pd.to_numeric(row[c_idx], errors="coerce")
                         if q and q > 0:
                             data_list.append({
-                                "Reference":           ref_manual,
-                                "Designation":         des_manual,
-                                "Qty":                 q,
-                                "Unit Price":          0,
-                                "Unit Price Currency": p_val,
-                                "VAT Table":           4,
-                                "Color":               color,
-                                "Size":                s_name,
-                                "TOTAL":               q * p_val,
-                                "Destination":         dest,
-                                "CPO No.":             "",
-                                "SPO No.":             "",
-                                "Supplier Unit Value": "",
-                                "Total Supplier":      "",
+                                "Reference":               ref_manual,
+                                "Designation":             des_manual,
+                                "Qty":                     q,
+                                "Unit Price":              0,
+                                "Unit Price Currency":     p_val,
+                                "VAT Table":               4,
+                                "Color":                   color,
+                                "Size":                    s_name,
+                                "TOTAL":                   q * p_val,
+                                "Destination":             dest,
+                                "CPO No.":                 "",
+                                "SPO No.":                 "",
+                                "Supplier Unit Value":     "",
+                                "Total Supplier":          "",
+                                "Client Shipment Date":    "",
+                                "Supplier Shipment Date":  "",
                             })
 
             if data_list:
