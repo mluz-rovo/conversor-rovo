@@ -9,6 +9,14 @@ st.set_page_config(page_title="ROVO - Universal Converter", page_icon="🚀", la
 st.sidebar.title("🚀 ROVO MENU")
 client = st.sidebar.selectbox("Select Client", ["Stussy", "Supreme", "Studio Nicholson"])
 
+# Limpa session_state do Stussy quando muda de cliente
+if "last_client" not in st.session_state:
+    st.session_state["last_client"] = client
+if st.session_state["last_client"] != client:
+    for key in ["stussy_models", "stussy_df", "stussy_ref_map", "stussy_des_map", "stussy_excel", "stussy_lines"]:
+        st.session_state.pop(key, None)
+    st.session_state["last_client"] = client
+
 # ===========================================================================
 # SIDEBAR — campos por cliente
 # ===========================================================================
@@ -227,7 +235,7 @@ if client == "Stussy":
             df_final = pd.DataFrame(data_list).drop_duplicates()
             excel    = make_excel(df_final, "PO")
             st.download_button(
-                f"⬇️ Download PHC Excel",
+                f"⬇️ Download PHC Excel ({len(data_list)} linhas)",
                 excel,
                 "IMPORT_Stussy.xlsx",
                 key="dl_stussy"
