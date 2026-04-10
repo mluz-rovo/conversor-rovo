@@ -188,10 +188,9 @@ if client == "Stussy":
             st.info(f"✅ {len(models_found)} modelo(s) encontrado(s). Preenche as referências no sidebar.")
 
     if st.session_state.get("stussy_df") is not None:
-        if st.button("✅ Gerar Excel"):
+        if st.button("⬇️ Gerar e Descarregar Excel"):
             try:
                 df = st.session_state["stussy_df"]
-                # Usa os mapas do session_state para garantir que os valores persistem
                 ref_map = st.session_state.get("stussy_ref_map", {})
                 des_map = st.session_state.get("stussy_des_map", {})
                 data_list = []
@@ -228,18 +227,11 @@ if client == "Stussy":
 
                 df_final = pd.DataFrame(data_list).drop_duplicates()
                 excel    = make_excel(df_final, "PO")
-                st.session_state["stussy_excel"] = excel
-                st.success(f"✅ Conversão concluída! {len(data_list)} linhas geradas.")
+                st.success(f"✅ {len(data_list)} linhas geradas.")
+                st.download_button("⬇️ Download PHC Excel", excel, "IMPORT_Stussy.xlsx")
             except Exception as e:
                 st.error(f"Erro: {e}")
                 st.exception(e)
-
-        if st.session_state.get("stussy_excel"):
-            st.download_button(
-                "⬇️ Download PHC Excel",
-                st.session_state["stussy_excel"],
-                "IMPORT_Stussy.xlsx"
-            )
 
 # ===========================================================================
 # SUPREME
