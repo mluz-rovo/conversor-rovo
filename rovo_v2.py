@@ -226,12 +226,20 @@ if client == "Stussy":
                             })
 
                 df_final = pd.DataFrame(data_list).drop_duplicates()
-                excel    = make_excel(df_final, "PO")
-                st.success(f"✅ {len(data_list)} linhas geradas.")
-                st.download_button("⬇️ Download PHC Excel", excel, "IMPORT_Stussy.xlsx")
+                st.session_state["stussy_excel"] = make_excel(df_final, "PO")
+                st.session_state["stussy_lines"]  = len(data_list)
             except Exception as e:
                 st.error(f"Erro: {e}")
                 st.exception(e)
+
+        if st.session_state.get("stussy_excel"):
+            st.success(f"✅ {st.session_state['stussy_lines']} linhas geradas.")
+            st.download_button(
+                "⬇️ Download PHC Excel",
+                st.session_state["stussy_excel"],
+                "IMPORT_Stussy.xlsx",
+                key="dl_stussy"
+            )
 
 # ===========================================================================
 # SUPREME
