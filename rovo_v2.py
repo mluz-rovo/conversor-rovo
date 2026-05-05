@@ -3,6 +3,7 @@ import pandas as pd
 import io
 import pdfplumber
 import re
+from datetime import datetime
 
 st.set_page_config(page_title="ROVO - Universal Converter", page_icon="🚀", layout="wide")
 
@@ -33,7 +34,10 @@ if client == "Stussy":
     else:
         st.sidebar.caption("Upload a file and click Analyse File.")
 
-st.title(f"📦 Converter: {client}")
+# ===========================================================================
+# TABS
+# ===========================================================================
+tab1, tab2, tab3 = st.tabs(["📦 Converter", "💰 Financial Control", "ℹ️ Help"])
 
 # ===========================================================================
 # STUDIO NICHOLSON — CONSTANTS
@@ -136,9 +140,9 @@ def parse_quantities_pdf(pdf_file) -> list:
                             "destination": current_dest,
                         })
 
-    with st.expander("🐛 Debug", expanded=False):
-        for entry in log:
-            st.text(entry)
+        with st.expander("🐛 Debug", expanded=False):
+            for entry in log:
+                st.text(entry)
 
     return rows
 
@@ -191,272 +195,472 @@ def make_excel(df_final, group_col):
     return out.getvalue()
 
 # ===========================================================================
-# STUSSY
+# TAB 1: CONVERTER
 # ===========================================================================
-if client == "Stussy":
-    uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
+with tab1:
+    st.title(f"📦 Converter: {client}")
 
-    if uploaded_file:
-        if st.session_state.get("stussy_filename") != uploaded_file.name:
-            for key in ["stussy_models", "stussy_df"]:
-                st.session_state.pop(key, None)
-            st.session_state["stussy_filename"] = uploaded_file.name
+    # ===========================================================================
+    # STUSSY
+    # ===========================================================================
+    if client == "Stussy":
+        uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
 
-        if st.button("🔍 Analyse File", type="secondary"):
-            xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-            sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
-            df = xl.parse(sheet_name, header=None)
-            models_found = df.iloc[1:][8].dropna().astype(str).str.strip().unique().tolist()
-            models_found = [m for m in models_found if m and m != "nan"]
-            st.session_state["stussy_models"] = models_found
-            st.session_state["stussy_df"]     = df
-            st.rerun()
+        if uploaded_file:
+            if st.session_state.get("stussy_filename") != uploaded_file.name:
+                for key in ["stussy_models", "stussy_df"]:
+                    st.session_state.pop(key, None)
+                st.session_state["stussy_filename"] = uploaded_file.name
 
-    if st.session_state.get("stussy_df") is not None and st.session_state.get("stussy_filename") == (uploaded_file.name if uploaded_file else ""):
-        try:
-            df = st.session_state["stussy_df"]
-            data_list = []
-            for i, row in df.iloc[1:].iterrows():
-                n = len(row)
-                q = pd.to_numeric(row[12], errors="coerce") if n > 12 else None
-                p_raw = row[17] if n > 17 else (row[13] if n > 13 else None)
-                if isinstance(p_raw, str):
-                    p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
-                else:
-                    p = pd.to_numeric(p_raw, errors="coerce") if p_raw is not None else None
-                if q and q > 0:
-                    p_val  = p if p is not None and pd.notna(p) else 0
-                    po_raw = row[2] if n > 2 else ""
-                    po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
-                    if not po or po == "nan":
-                        po = "General"
-                    model = str(row[8]).strip() if n > 8 else ""
-                    r = make_row(
-                        ref      = st.session_state.get(f"ref_{model}", ""),
-                        des      = st.session_state.get(f"des_{model}", model),
-                        qty      = q,
-                        price    = 0,
-                        currency = p_val,
-                        color    = row[7] if n > 7 else "",
-                        size     = row[9] if n > 9 else "",
-                        dest     = row[4] if n > 4 else "General",
-                    )
-                    r["PO"] = po
-                    data_list.append(r)
+            if st.button("🔍 Analyse File", type="secondary"):
+                xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
+                sheet_name = "Sheet1" if "Sheet1" in xl.sheet_names else xl.sheet_names[0]
+                df = xl.parse(sheet_name, header=None)
+                models_found = df.iloc[1:][8].dropna().astype(str).str.strip().unique().tolist()
+                models_found = [m for m in models_found if m and m != "nan"]
+                st.session_state["stussy_models"] = models_found
+                st.session_state["stussy_df"]     = df
+                st.rerun()
 
-            df_final = pd.DataFrame(data_list).drop_duplicates()
-            excel    = make_excel(df_final, "PO")
-            st.download_button(
-                f"⬇️ Download PHC Excel ({len(data_list)} rows)",
-                excel,
-                "IMPORT_Stussy.xlsx",
-                key="dl_stussy"
-            )
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.exception(e)
-
-# ===========================================================================
-# SUPREME
-# ===========================================================================
-elif client == "Supreme":
-    supreme_type  = st.radio("File Type", ["Bulk", "SMS", "TOP"], horizontal=True)
-    uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
-
-    if uploaded_file:
-        try:
-            data_list = []
-            xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
-
-            if supreme_type == "Bulk":
-                for sheet in xl.sheet_names:
-                    if "TOTAL" in sheet.upper():
-                        continue
-                    df = xl.parse(sheet, header=None)
-                    sizes = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
-                    for start in range(16, len(df), 14):
-                        dest = str(df.iloc[start, 0]).strip()
-                        if not dest or dest == "nan":
-                            dest = "General"
-                        for i in range(start + 1, start + 13):
-                            if i >= len(df) or pd.isna(df.iloc[i, 6]):
-                                continue
-                            p = pd.to_numeric(df.iloc[i, 17], errors="coerce")
-                            for c_idx, s_name in sizes.items():
-                                q = pd.to_numeric(df.iloc[i, c_idx], errors="coerce")
-                                if q and q > 0:
-                                    p_val = p if pd.notna(p) else 0
-                                    data_list.append(make_row(
-                                        ref=ref_manual, des=des_manual,
-                                        qty=q, currency=p_val,
-                                        color=df.iloc[i, 6], size=s_name, dest=dest,
-                                    ))
-
-            else:  # SMS and TOP
-                df   = xl.parse(xl.sheet_names[0], header=None)
-                dest = str(df.iloc[3, 7]).strip() if pd.notna(df.iloc[3, 7]) else "General"
-                sizes = {c: str(df.iloc[14, c]) for c in range(8, 13)
-                         if pd.notna(df.iloc[14, c]) and str(df.iloc[14, c]).strip()}
-                current_model = ""
-                for i in range(17, len(df)):
-                    row = df.iloc[i]
-                    if pd.notna(row[0]) and str(row[0]).strip():
-                        current_model = str(row[0]).strip()
-                    color = str(row[6]).strip() if pd.notna(row[6]) and str(row[6]).strip() else ""
-                    if not color or color == "nan":
-                        continue
-                    p     = pd.to_numeric(row[14], errors="coerce") if pd.notna(row[14]) else 0
-                    p_val = p if pd.notna(p) else 0
-                    for c_idx, s_name in sizes.items():
-                        q = pd.to_numeric(row[c_idx], errors="coerce")
-                        if q and q > 0:
-                            data_list.append(make_row(
-                                ref=ref_manual, des=des_manual,
-                                qty=q, currency=p_val,
-                                color=color, size=s_name, dest=dest,
-                                notas="preço unitário com surcharge" if supreme_type == "SMS" else "",
-                            ))
-
-            if data_list:
-                df_final = pd.DataFrame(data_list).drop_duplicates()
-                excel    = make_excel(df_final, "Destino")
-                st.success(f"✅ Conversion complete! {len(data_list)} rows generated.")
-                st.download_button("⬇️ Download PHC Excel", excel, f"IMPORT_Supreme_{supreme_type}.xlsx")
-            else:
-                st.warning("No valid data found. Please check the file.")
-        except Exception as e:
-            st.error(f"Error: {e}")
-            st.exception(e)
-
-# ===========================================================================
-# STUDIO NICHOLSON
-# ===========================================================================
-elif client == "Studio Nicholson":
-    uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
-
-    if uploaded_file:
-        file_bytes = uploaded_file.read()
-        qty_rows   = parse_quantities_pdf(io.BytesIO(file_bytes))
-        if qty_rows:
-            st.session_state["sn_rows"] = qty_rows
-        else:
-            st.warning("No data found in the PDF.")
-
-    if st.session_state.get("sn_rows"):
-        qty_rows = st.session_state["sn_rows"]
-        models   = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
-
-        st.subheader("💶 Enter unit price per model")
-        price_map = {}
-        cols_ui   = st.columns(min(len(models), 3))
-        for i, (code, model_name) in enumerate(models):
-            with cols_ui[i % 3]:
-                price = st.number_input(
-                    f"{code}", min_value=0.0, step=0.01, format="%.2f",
-                    key=f"price_{code}", help=model_name,
-                )
-                price_map[code] = price
-
-        if st.button("✅ Generate Excel"):
+        if st.session_state.get("stussy_df") is not None and st.session_state.get("stussy_filename") == (uploaded_file.name if uploaded_file else ""):
             try:
+                df = st.session_state["stussy_df"]
                 data_list = []
-                for r in qty_rows:
-                    unit_price = price_map.get(r["code"], 0)
-                    data_list.append(make_row(
-                        des=r["model"], qty=r["qty"], price=unit_price,
-                        color=r["color"], size=r["size"], dest=r["destination"],
-                    ))
+                for i, row in df.iloc[1:].iterrows():
+                    n = len(row)
+                    q = pd.to_numeric(row[12], errors="coerce") if n > 12 else None
+                    p_raw = row[17] if n > 17 else (row[13] if n > 13 else None)
+                    if isinstance(p_raw, str):
+                        p = pd.to_numeric(re.sub(r"[^\d\.]", "", p_raw.replace(",", ".")), errors="coerce")
+                    else:
+                        p = pd.to_numeric(p_raw, errors="coerce") if p_raw is not None else None
+                    if q and q > 0:
+                        p_val  = p if p is not None and pd.notna(p) else 0
+                        po_raw = row[2] if n > 2 else ""
+                        po     = str(po_raw).strip() if pd.notna(po_raw) else "General"
+                        if not po or po == "nan":
+                            po = "General"
+                        model = str(row[8]).strip() if n > 8 else ""
+                        r = make_row(
+                            ref      = st.session_state.get(f"ref_{model}", ""),
+                            des      = st.session_state.get(f"des_{model}", model),
+                            qty      = q,
+                            price    = 0,
+                            currency = p_val,
+                            color    = row[7] if n > 7 else "",
+                            size     = row[9] if n > 9 else "",
+                            dest     = row[4] if n > 4 else "General",
+                        )
+                        r["PO"] = po
+                        data_list.append(r)
+
                 df_final = pd.DataFrame(data_list).drop_duplicates()
-                excel    = make_excel(df_final, "Destino")
-                st.success(f"✅ Conversion complete! {len(data_list)} rows generated.")
-                st.session_state["sn_excel"] = excel
+                excel    = make_excel(df_final, "PO")
+                st.download_button(
+                    f"⬇️ Download PHC Excel ({len(data_list)} rows)",
+                    excel,
+                    "IMPORT_Stussy.xlsx",
+                    key="dl_stussy"
+                )
             except Exception as e:
                 st.error(f"Error: {e}")
                 st.exception(e)
 
-        if st.session_state.get("sn_excel"):
-            st.download_button("⬇️ Download PHC Excel", st.session_state["sn_excel"], "IMPORT_StudioNicholson.xlsx")
+    # ===========================================================================
+    # SUPREME
+    # ===========================================================================
+    elif client == "Supreme":
+        supreme_type  = st.radio("File Type", ["Bulk", "SMS", "TOP"], horizontal=True)
+        uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
 
-# ===========================================================================
-# INDEX
-# ===========================================================================
-elif client == "Index":
-    st.info("Fill in the table below and click Download to generate the Excel file.")
+        if uploaded_file:
+            try:
+                data_list = []
+                xl = pd.ExcelFile(uploaded_file, engine="openpyxl")
 
-    empty_row = {
-        "Referência":    "",
-        "Designação":    "",
-        "Quant.":        0,
-        "Pr.Unit.":      0.0,
-        "Tabela de IVA": 23,
-        "Cor":           "",
-        "Tamanho":       "",
-        "Delivery Date": "",
-        "Nº SPO":        "",
-        "Supplier":      "",
-    }
+                if supreme_type == "Bulk":
+                    for sheet in xl.sheet_names:
+                        if "TOTAL" in sheet.upper():
+                            continue
+                        df = xl.parse(sheet, header=None)
+                        sizes = {c: str(df.iloc[14, c]) for c in range(9, 16) if pd.notna(df.iloc[14, c])}
+                        for start in range(16, len(df), 14):
+                            dest = str(df.iloc[start, 0]).strip()
+                            if not dest or dest == "nan":
+                                dest = "General"
+                            for i in range(start + 1, start + 13):
+                                if i >= len(df) or pd.isna(df.iloc[i, 6]):
+                                    continue
+                                p = pd.to_numeric(df.iloc[i, 17], errors="coerce")
+                                for c_idx, s_name in sizes.items():
+                                    q = pd.to_numeric(df.iloc[i, c_idx], errors="coerce")
+                                    if q and q > 0:
+                                        p_val = p if pd.notna(p) else 0
+                                        data_list.append(make_row(
+                                            ref=ref_manual, des=des_manual,
+                                            qty=q, currency=p_val,
+                                            color=df.iloc[i, 6], size=s_name, dest=dest,
+                                        ))
 
-    if "index_df" not in st.session_state:
-        st.session_state["index_df"] = pd.DataFrame([empty_row] * 5)
+                else:  # SMS and TOP
+                    df   = xl.parse(xl.sheet_names[0], header=None)
+                    dest = str(df.iloc[3, 7]).strip() if pd.notna(df.iloc[3, 7]) else "General"
+                    sizes = {c: str(df.iloc[14, c]) for c in range(8, 13)
+                             if pd.notna(df.iloc[14, c]) and str(df.iloc[14, c]).strip()}
+                    current_model = ""
+                    for i in range(17, len(df)):
+                        row = df.iloc[i]
+                        if pd.notna(row[0]) and str(row[0]).strip():
+                            current_model = str(row[0]).strip()
+                        color = str(row[6]).strip() if pd.notna(row[6]) and str(row[6]).strip() else ""
+                        if not color or color == "nan":
+                            continue
+                        p     = pd.to_numeric(row[14], errors="coerce") if pd.notna(row[14]) else 0
+                        p_val = p if pd.notna(p) else 0
+                        for c_idx, s_name in sizes.items():
+                            q = pd.to_numeric(row[c_idx], errors="coerce")
+                            if q and q > 0:
+                                data_list.append(make_row(
+                                    ref=ref_manual, des=des_manual,
+                                    qty=q, currency=p_val,
+                                    color=color, size=s_name, dest=dest,
+                                    notas="preço unitário com surcharge" if supreme_type == "SMS" else "",
+                                ))
 
-    col1, col2 = st.columns([1, 5])
-    with col1:
-        if st.button("➕ Add Row"):
-            st.session_state["index_df"] = pd.concat(
-                [st.session_state["index_df"], pd.DataFrame([empty_row])],
-                ignore_index=True
-            )
-        if st.button("🗑️ Clear All"):
+                if data_list:
+                    df_final = pd.DataFrame(data_list).drop_duplicates()
+                    excel    = make_excel(df_final, "Destino")
+                    st.success(f"✅ Conversion complete! {len(data_list)} rows generated.")
+                    st.download_button("⬇️ Download PHC Excel", excel, f"IMPORT_Supreme_{supreme_type}.xlsx")
+                else:
+                    st.warning("No valid data found. Please check the file.")
+            except Exception as e:
+                st.error(f"Error: {e}")
+                st.exception(e)
+
+    # ===========================================================================
+    # STUDIO NICHOLSON
+    # ===========================================================================
+    elif client == "Studio Nicholson":
+        uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
+
+        if uploaded_file:
+            file_bytes = uploaded_file.read()
+            qty_rows   = parse_quantities_pdf(io.BytesIO(file_bytes))
+            if qty_rows:
+                st.session_state["sn_rows"] = qty_rows
+            else:
+                st.warning("No data found in the PDF.")
+
+        if st.session_state.get("sn_rows"):
+            qty_rows = st.session_state["sn_rows"]
+            models   = sorted({(r["code"], r["model"]) for r in qty_rows}, key=lambda x: x[0])
+
+            st.subheader("💶 Enter unit price per model")
+            price_map = {}
+            cols_ui   = st.columns(min(len(models), 3))
+            for i, (code, model_name) in enumerate(models):
+                with cols_ui[i % 3]:
+                    price = st.number_input(
+                        f"{code}", min_value=0.0, step=0.01, format="%.2f",
+                        key=f"price_{code}", help=model_name,
+                    )
+                    price_map[code] = price
+
+            if st.button("✅ Generate Excel"):
+                try:
+                    data_list = []
+                    for r in qty_rows:
+                        unit_price = price_map.get(r["code"], 0)
+                        data_list.append(make_row(
+                            des=r["model"], qty=r["qty"], price=unit_price,
+                            color=r["color"], size=r["size"], dest=r["destination"],
+                        ))
+                    df_final = pd.DataFrame(data_list).drop_duplicates()
+                    excel    = make_excel(df_final, "Destino")
+                    st.success(f"✅ Conversion complete! {len(data_list)} rows generated.")
+                    st.session_state["sn_excel"] = excel
+                except Exception as e:
+                    st.error(f"Error: {e}")
+                    st.exception(e)
+
+            if st.session_state.get("sn_excel"):
+                st.download_button("⬇️ Download PHC Excel", st.session_state["sn_excel"], "IMPORT_StudioNicholson.xlsx")
+
+    # ===========================================================================
+    # INDEX
+    # ===========================================================================
+    elif client == "Index":
+        st.info("Fill in the table below and click Download to generate the Excel file.")
+
+        empty_row = {
+            "Referência":    "",
+            "Designação":    "",
+            "Quant.":        0,
+            "Pr.Unit.":      0.0,
+            "Tabela de IVA": 23,
+            "Cor":           "",
+            "Tamanho":       "",
+            "Delivery Date": "",
+            "Nº SPO":        "",
+            "Supplier":      "",
+        }
+
+        if "index_df" not in st.session_state:
             st.session_state["index_df"] = pd.DataFrame([empty_row] * 5)
 
-    edited_df = st.data_editor(
-        st.session_state["index_df"],
-        use_container_width=True,
-        num_rows="dynamic",
-        column_config={
-            "Referência":    st.column_config.TextColumn("Referência"),
-            "Designação":    st.column_config.TextColumn("Designação"),
-            "Quant.":        st.column_config.NumberColumn("Quant.", min_value=0, step=1, format="%d"),
-            "Pr.Unit.":      st.column_config.NumberColumn("Pr.Unit.", min_value=0.0, step=0.01, format="%.2f"),
-            "Tabela de IVA": st.column_config.NumberColumn("Tabela de IVA", min_value=0, step=1, format="%d"),
-            "Cor":           st.column_config.TextColumn("Cor"),
-            "Tamanho":       st.column_config.TextColumn("Tamanho"),
-            "Delivery Date": st.column_config.TextColumn("Delivery Date"),
-            "Nº SPO":        st.column_config.TextColumn("Nº SPO"),
-            "Supplier":      st.column_config.TextColumn("Supplier"),
-        },
-        key="index_editor"
-    )
-    st.session_state["index_df"] = edited_df
+        col1, col2 = st.columns([1, 5])
+        with col1:
+            if st.button("➕ Add Row"):
+                st.session_state["index_df"] = pd.concat(
+                    [st.session_state["index_df"], pd.DataFrame([empty_row])],
+                    ignore_index=True
+                )
+            if st.button("🗑️ Clear All"):
+                st.session_state["index_df"] = pd.DataFrame([empty_row] * 5)
 
-    valid = edited_df[pd.to_numeric(edited_df["Quant."], errors="coerce").fillna(0) > 0].copy()
-
-    if not valid.empty:
-        data_list = []
-        for _, row in valid.iterrows():
-            qty   = pd.to_numeric(row["Quant."], errors="coerce") or 0
-            price = pd.to_numeric(row["Pr.Unit."], errors="coerce") or 0
-            data_list.append(make_row(
-                ref        = row["Referência"],
-                des        = row["Designação"],
-                qty        = qty,
-                price      = price,
-                vat        = row["Tabela de IVA"],
-                color      = row["Cor"],
-                size       = row["Tamanho"],
-                dest       = row["Supplier"],
-                spo        = row["Nº SPO"],
-                client_date= row["Delivery Date"],
-            ))
-
-        df_final = pd.DataFrame(data_list)
-        out = io.BytesIO()
-        with pd.ExcelWriter(out, engine="openpyxl") as writer:
-            df_final[cols].to_excel(writer, index=False, sheet_name="Index")
-
-        st.download_button(
-            f"⬇️ Download PHC Excel ({len(data_list)} rows)",
-            out.getvalue(),
-            "IMPORT_Index.xlsx",
-            key="dl_index"
+        edited_df = st.data_editor(
+            st.session_state["index_df"],
+            use_container_width=True,
+            num_rows="dynamic",
+            column_config={
+                "Referência":    st.column_config.TextColumn("Referência"),
+                "Designação":    st.column_config.TextColumn("Designação"),
+                "Quant.":        st.column_config.NumberColumn("Quant.", min_value=0, step=1, format="%d"),
+                "Pr.Unit.":      st.column_config.NumberColumn("Pr.Unit.", min_value=0.0, step=0.01, format="%.2f"),
+                "Tabela de IVA": st.column_config.NumberColumn("Tabela de IVA", min_value=0, step=1, format="%d"),
+                "Cor":           st.column_config.TextColumn("Cor"),
+                "Tamanho":       st.column_config.TextColumn("Tamanho"),
+                "Delivery Date": st.column_config.TextColumn("Delivery Date"),
+                "Nº SPO":        st.column_config.TextColumn("Nº SPO"),
+                "Supplier":      st.column_config.TextColumn("Supplier"),
+            },
+            key="index_editor"
         )
+        st.session_state["index_df"] = edited_df
+
+        valid = edited_df[pd.to_numeric(edited_df["Quant."], errors="coerce").fillna(0) > 0].copy()
+
+        if not valid.empty:
+            data_list = []
+            for _, row in valid.iterrows():
+                qty   = pd.to_numeric(row["Quant."], errors="coerce") or 0
+                price = pd.to_numeric(row["Pr.Unit."], errors="coerce") or 0
+                data_list.append(make_row(
+                    ref        = row["Referência"],
+                    des        = row["Designação"],
+                    qty        = qty,
+                    price      = price,
+                    vat        = row["Tabela de IVA"],
+                    color      = row["Cor"],
+                    size       = row["Tamanho"],
+                    dest       = row["Supplier"],
+                    spo        = row["Nº SPO"],
+                    client_date= row["Delivery Date"],
+                ))
+
+            df_final = pd.DataFrame(data_list)
+            out = io.BytesIO()
+            with pd.ExcelWriter(out, engine="openpyxl") as writer:
+                df_final[cols].to_excel(writer, index=False, sheet_name="Index")
+
+            st.download_button(
+                f"⬇️ Download PHC Excel ({len(data_list)} rows)",
+                out.getvalue(),
+                "IMPORT_Index.xlsx",
+                key="dl_index"
+            )
+
+# ===========================================================================
+# TAB 2: FINANCIAL CONTROL
+# ===========================================================================
+with tab2:
+    st.title("💰 Financial Control - Resumo CPO/SPO")
+    
+    st.info("📤 Carregue o seu Excel com os dados financeiros para gerar um resumo agrupado por CPO e SPO")
+    
+    uploaded_file = st.file_uploader("Upload seu Excel financeiro", type=["xlsx"], key="financial_upload")
+    
+    if uploaded_file:
+        try:
+            # Lê todas as abas do ficheiro
+            excel_file = pd.ExcelFile(uploaded_file, engine="openpyxl")
+            
+            # Se houver múltiplas abas, combina todas
+            if len(excel_file.sheet_names) > 1:
+                all_sheets = {sheet: pd.read_excel(uploaded_file, sheet_name=sheet) for sheet in excel_file.sheet_names}
+                df_combined = pd.concat([df.assign(Source_Sheet=sheet) for sheet, df in all_sheets.items()], ignore_index=True)
+            else:
+                df_combined = pd.read_excel(uploaded_file, sheet_name=0)
+            
+            st.subheader("📋 Preview dos Dados")
+            with st.expander("Ver todos os dados", expanded=False):
+                st.dataframe(df_combined, use_container_width=True)
+            
+            st.write(f"✅ Carregadas **{len(df_combined)}** linhas de dados")
+            
+            # ===========================================================================
+            # CONFIGURAÇÃO DE COLUNAS
+            # ===========================================================================
+            st.subheader("⚙️ Mapear Colunas")
+            st.write("Selecione as colunas que correspondem aos seus dados:")
+            
+            cols_list = df_combined.columns.tolist()
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                col_shipping = st.selectbox("Shipping Destination", cols_list)
+            with col2:
+                col_collection = st.selectbox("Collection", cols_list)
+            with col3:
+                col_client_po = st.selectbox("Client PO", cols_list)
+            with col4:
+                col_cpo = st.selectbox("CPO", cols_list)
+            
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                col_value_orig = st.selectbox("Value Original Currency", cols_list)
+            with col2:
+                col_currency = st.selectbox("Currency", cols_list)
+            with col3:
+                col_value_eur = st.selectbox("Value in €", cols_list)
+            with col4:
+                col_spo = st.selectbox("SPO", cols_list)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                col_ship_date = st.selectbox("Estimated Shipping Date", cols_list)
+            with col2:
+                col_margin = st.selectbox("Direct Margin", cols_list)
+            with col3:
+                col_qty = st.selectbox("QTY", cols_list)
+            
+            col_supplier = st.selectbox("Supplier", cols_list)
+            
+            # ===========================================================================
+            # PROCESSAR
+            # ===========================================================================
+            if st.button("🔄 Processar Dados", type="primary"):
+                try:
+                    df_proc = df_combined.copy()
+                    
+                    # Converter para números
+                    numeric_cols = [col_value_orig, col_value_eur, col_margin, col_qty]
+                    for col in numeric_cols:
+                        if col in df_proc.columns:
+                            df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0)
+                    
+                    # ===========================================================================
+                    # RESUMO POR CPO/SPO
+                    # ===========================================================================
+                    st.subheader("📋 Resumo (CPO/SPO)")
+                    
+                    agg_dict = {
+                        col_shipping: 'first',
+                        col_collection: 'first',
+                        col_client_po: 'first',
+                        col_value_orig: 'sum',
+                        col_currency: 'first',
+                        col_value_eur: 'sum',
+                        col_ship_date: 'first',
+                        col_margin: 'sum',
+                        col_qty: 'sum',
+                        col_supplier: 'first'
+                    }
+                    
+                    # Filtrar apenas colunas que existem
+                    agg_dict = {k: v for k, v in agg_dict.items() if k in df_proc.columns}
+                    
+                    summary_spo = df_proc.groupby([col_cpo, col_spo], as_index=False).agg(agg_dict)
+                    
+                    summary_spo = summary_spo.rename(columns={
+                        col_cpo: 'CPO',
+                        col_spo: 'SPO',
+                        col_shipping: 'Shipping Destination',
+                        col_collection: 'Collection',
+                        col_client_po: 'Client PO',
+                        col_value_orig: 'Value in Original Currency',
+                        col_currency: 'Currency',
+                        col_value_eur: 'Value in €',
+                        col_ship_date: 'Estimated Shipping Date',
+                        col_margin: 'Direct Margin',
+                        col_qty: 'QTY',
+                        col_supplier: 'Supplier'
+                    })
+                    
+                    st.dataframe(summary_spo, use_container_width=True, hide_index=True)
+                    
+                    # ===========================================================================
+                    # ESTATÍSTICAS
+                    # ===========================================================================
+                    st.subheader("📊 Estatísticas")
+                    
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Total CPOs", summary_spo['CPO'].nunique())
+                    with col2:
+                        st.metric("Total SPOs", len(summary_spo))
+                    with col3:
+                        total_value = df_proc[col_value_eur].sum()
+                        st.metric("Valor Total (€)", f"€{total_value:,.2f}")
+                    with col4:
+                        total_margin = df_proc[col_margin].sum()
+                        st.metric("Margem Total (€)", f"€{total_margin:,.2f}")
+                    
+                    # ===========================================================================
+                    # EXPORT
+                    # ===========================================================================
+                    st.subheader("⬇️ Descarregar Relatório")
+                    
+                    out = io.BytesIO()
+                    with pd.ExcelWriter(out, engine="openpyxl") as writer:
+                        summary_spo.to_excel(writer, index=False, sheet_name="Sheet1")
+                    
+                    filename = f"Financial_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                    
+                    st.download_button(
+                        "📥 Download Relatório Financeiro",
+                        out.getvalue(),
+                        filename,
+                        key="dl_financial",
+                        type="primary"
+                    )
+                    
+                    st.success("✅ Relatório gerado com sucesso!")
+                    
+                except Exception as e:
+                    st.error(f"❌ Erro ao processar: {e}")
+                    st.exception(e)
+        
+        except Exception as e:
+            st.error(f"❌ Erro ao ler ficheiro: {e}")
+            st.write("💡 Certifique-se que:")
+            st.write("- O ficheiro é Excel (.xlsx)")
+            st.write("- Tem as colunas esperadas (CPO, SPO, etc)")
+            st.write("- As colunas numéricas contêm apenas números")
+
+# ===========================================================================
+# TAB 3: HELP
+# ===========================================================================
+with tab3:
+    st.title("ℹ️ Como Usar")
+    
+    st.markdown("""
+    ### 📦 Converter Tab
+    1. **Selecione Cliente**: Escolha entre Stussy, Supreme, Studio Nicholson, ou Index
+    2. **Upload Ficheiro**: Carregue o ficheiro bruto (XLSX para Stussy/Supreme/Index, PDF para Studio Nicholson)
+    3. **Configure**: Adicione referência e designação se necessário
+    4. **Download**: Descarregue o Excel PHC
+    
+    ### 💰 Financial Control Tab
+    1. **Upload Excel**: Carregue o Excel que preencheu
+    2. **Mapear Colunas**: Selecione CPO, SPO, Valor, etc. (dropdowns automáticos)
+    3. **Processar**: Click em "Processar Dados"
+    4. **Revisar**: Veja o resumo gerado
+    5. **Download**: Descarregue Excel com 1 aba contendo o resumo
+    
+    ### 📊 O que Você Obtém
+    - Uma aba com resumo agrupado por CPO e SPO
+    - Colunas: Shipping Destination, Collection, Client PO, CPO, SPO, Value €, Margem, QTY, etc.
+    - Estatísticas: Total CPOs, Total SPOs, Valor Total €, Margem Total €
+    """)
