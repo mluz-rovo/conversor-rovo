@@ -147,7 +147,7 @@ def parse_quantities_pdf(pdf_file) -> list:
 # ===========================================================================
 cols = [
     "Referência", "Designação", "Quant.", "Pr.Unit.",
-    "Pr.Unit. Moeda", "Tabela de IVA", "Cor", "Tamanho",
+    "Pr.Unit.Moeda", "Tabela de IVA", "Cor", "Tamanho",
     "TOTAL", "Destino", "Nº CPO", "Nº SPO",
     "Valor Unit. Fornecedor", "Total Fornecedor",
     "Data Envio Cliente", "Data Envio Fornecedor", "Notas",
@@ -162,7 +162,7 @@ def make_row(ref="", des="", qty=0, price=0.0, vat=4, color="", size="",
         "Designação":             des,
         "Quant.":                 qty,
         "Pr.Unit.":               price,
-        "Pr.Unit. Moeda":         currency,
+        "Pr.Unit.Moeda":         currency,
         "Tabela de IVA":          vat,
         "Cor":                    color,
         "Tamanho":                size,
