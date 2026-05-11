@@ -13,10 +13,8 @@ uploaded_file = st.file_uploader("Upload seu Excel financeiro", type=["xlsx"], k
 
 if uploaded_file:
     try:
-        # Lê o Excel
         excel_file = pd.ExcelFile(uploaded_file, engine="openpyxl")
         
-        # Se múltiplas abas, combina
         if len(excel_file.sheet_names) > 1:
             all_sheets = {sheet: pd.read_excel(uploaded_file, sheet_name=sheet) for sheet in excel_file.sheet_names}
             df_combined = pd.concat([df.assign(Source_Sheet=sheet) for sheet, df in all_sheets.items()], ignore_index=True)
@@ -28,12 +26,10 @@ if uploaded_file:
         with st.expander("Ver dados completos", expanded=False):
             st.dataframe(df_combined, use_container_width=True)
         
-        # ===== DETECTAR COLUNAS =====
         cols_disponíveis = df_combined.columns.tolist()
         st.subheader("⚙️ Colunas Detectadas")
         st.write(cols_disponíveis)
         
-        # Procurar por cada coluna
         col_cpo = None
         col_spo = None
         col_shipping = None
@@ -74,7 +70,6 @@ if uploaded_file:
             if 'supplier' in col_lower and col_supplier is None:
                 col_supplier = col
         
-        # Verificar se encontrou
         if not col_cpo:
             st.error("❌ Coluna CPO não encontrada!")
             st.write(f"Colunas disponíveis: {cols_disponíveis}")
@@ -87,63 +82,61 @@ if uploaded_file:
                 try:
                     df_proc = df_combined.copy()
                     
-                    # Converter para números
                     numeric_cols = [col_value_orig, col_value_eur, col_margin, col_qty]
                     for col in numeric_cols:
                         if col and col in df_proc.columns:
                             df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0)
                     
-                    # ===== AGRUPAR =====
                     agg_dict = {}
                     
-                    # Números (soma)
                     numeric_agg = [col_value_orig, col_value_eur, col_margin, col_qty]
                     for col in numeric_agg:
                         if col and col in df_proc.columns:
                             agg_dict[col] = 'sum'
                     
-                    # Todas as outras colunas (primeiro valor)
                     for col in df_proc.columns:
                         if col not in agg_dict and col != col_cpo and col != col_spo:
                             agg_dict[col] = 'first'
                     
-                    # Agrupar por CPO e SPO
                     summary = df_proc.groupby([col_cpo, col_spo], as_index=False).agg(agg_dict)
                     
-                    # ===== REORDENAR COLUNAS NA ORDEM EXATA SOLICITADA =====
-                    cols_ordem_solicitada = [
-                        col_shipping,           # Shipping destination
-                        col_collection,         # Collection
-                        col_client_po,          # Client PO
-                        col_cpo,                # CPO
-                        col_value_orig,         # Value in original currency
-                        col_currency,           # Currency
-                        col_value_eur,          # Value in €
-                        col_spo,                # SPO
-                        col_value_eur,          # Value in € (2x conforme solicitado)
-                        col_supplier,           # Supplier
-                        col_ship_date,          # Estimated shipping date
-                        col_margin,             # Direct Margin
-                        col_qty                 # Qty
+                    # REORDENAR E DUPLICAR COLUNA
+                    cols_finais = [
+                        col_shipping,
+                        col_collection,
+                        col_client_po,
+                        col_cpo,
+                        col_value_orig,
+                        col_currency,
+                        col_value_eur,
+                        col_spo,
                     ]
                     
-                    # Filtrar colunas que existem e remover duplicatas mantendo ordem
-                    cols_ordem_final = []
-                    for col in cols_ordem_solicitada:
-                        if col and col in summary.columns and col not in cols_ordem_final:
-                            cols_ordem_final.append(col)
+                    # Criar nova ordem com Value in € duplicada
+                    summary_reord = summary[[c for c in cols_finais if c and c in summary.columns]].copy()
                     
-                    # Adicionar qualquer coluna extra que não estava na lista
-                    for col in summary.columns:
-                        if col not in cols_ordem_final:
-                            cols_ordem_final.append(col)
+                    # Adicionar as restantes colunas
+                    if col_supplier and col_supplier in summary.columns:
+                        summary_reord[col_supplier] = summary[col_supplier]
+                    if col_ship_date and col_ship_date in summary.columns:
+                        summary_reord[col_ship_date] = summary[col_ship_date]
+                    if col_margin and col_margin in summary.columns:
+                        summary_reord[col_margin] = summary[col_margin]
+                    if col_qty and col_qty in summary.columns:
+                        summary_reord[col_qty] = summary[col_qty]
                     
-                    summary = summary[cols_ordem_final]
+                    # Agora duplicar Value in € se existir
+                    if col_value_eur and col_value_eur in summary.columns:
+                        # Inserir cópia de Value in € na posição 9 (depois de SPO)
+                        cols_list = list(summary_reord.columns)
+                        spo_idx = cols_list.index(col_spo) if col_spo in cols_list else -1
+                        
+                        if spo_idx >= 0:
+                            summary_reord.insert(spo_idx + 1, f"{col_value_eur}_2", summary[col_value_eur])
                     
-                    st.subheader(f"📋 Resumo CPO/SPO ({len(summary)} linhas)")
-                    st.dataframe(summary, use_container_width=True, hide_index=True)
+                    st.subheader(f"📋 Resumo CPO/SPO ({len(summary_reord)} linhas)")
+                    st.dataframe(summary_reord, use_container_width=True, hide_index=True)
                     
-                    # ===== ESTATÍSTICAS =====
                     st.subheader("📊 Estatísticas")
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
@@ -159,24 +152,21 @@ if uploaded_file:
                             total = summary[col_margin].sum()
                             st.metric("Margem Total (€)", f"€{total:,.2f}")
                     
-                    # ===== EXPORT =====
                     st.subheader("⬇️ Descarregar")
                     
                     out = io.BytesIO()
                     with pd.ExcelWriter(out, engine="openpyxl") as writer:
-                        summary.to_excel(writer, index=False, sheet_name="Sheet1", startrow=0)
+                        summary_reord.to_excel(writer, index=False, sheet_name="Sheet1", startrow=0)
                         
-                        # Adicionar fórmula se possível
                         if col_value_eur and col_currency and col_value_orig:
                             try:
                                 ws = writer.sheets["Sheet1"]
                                 
-                                # Encontrar índices das colunas (primeira ocorrência de Value in €)
                                 col_idx_eur = None
                                 col_idx_currency = None
                                 col_idx_orig = None
                                 
-                                for idx, col in enumerate(cols_ordem_final, 1):
+                                for idx, col in enumerate(summary_reord.columns, 1):
                                     if col == col_value_eur and col_idx_eur is None:
                                         col_idx_eur = idx
                                     if col == col_currency and col_idx_currency is None:
@@ -184,9 +174,8 @@ if uploaded_file:
                                     if col == col_value_orig and col_idx_orig is None:
                                         col_idx_orig = idx
                                 
-                                # Adicionar fórmula para cada linha
                                 if col_idx_eur and col_idx_currency and col_idx_orig:
-                                    for row_idx in range(2, len(summary) + 2):
+                                    for row_idx in range(2, len(summary_reord) + 2):
                                         currency_cell = f"{chr(64 + col_idx_currency)}{row_idx}"
                                         value_orig_cell = f"{chr(64 + col_idx_orig)}{row_idx}"
                                         formula = f'=IF({currency_cell}="EUR",{value_orig_cell},{value_orig_cell}/$F$1)'
