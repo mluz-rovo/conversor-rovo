@@ -100,42 +100,37 @@ if uploaded_file:
                     
                     summary = df_proc.groupby([col_cpo, col_spo], as_index=False).agg(agg_dict)
                     
-                    # REORDENAR E DUPLICAR COLUNA
-                    cols_finais = [
-                        col_shipping,
-                        col_collection,
-                        col_client_po,
-                        col_cpo,
-                        col_value_orig,
-                        col_currency,
-                        col_value_eur,
-                        col_spo,
+                    # REORDENAR NA ORDEM EXATA SOLICITADA
+                    cols_ordem = [
+                        col_shipping,           # Shipping destination
+                        col_collection,         # Collection
+                        col_client_po,          # Client PO
+                        col_cpo,                # CPO
+                        col_value_orig,         # Value in original currency
+                        col_currency,           # Currency
+                        col_value_eur,          # Value in €
+                        col_spo,                # SPO
+                        col_value_eur,          # Value in € (NOVAMENTE - será duplicada)
+                        col_supplier,           # Supplier
+                        col_ship_date,          # Estimated shipping date
+                        col_margin,             # Direct Margin
+                        col_qty                 # Qty
                     ]
                     
-                    # Criar nova ordem com Value in € duplicada
-                    summary_reord = summary[[c for c in cols_finais if c and c in summary.columns]].copy()
+                    # Construir DataFrame com colunas na ordem correta
+                    summary_final = pd.DataFrame()
                     
-                    # Adicionar as restantes colunas
-                    if col_supplier and col_supplier in summary.columns:
-                        summary_reord[col_supplier] = summary[col_supplier]
-                    if col_ship_date and col_ship_date in summary.columns:
-                        summary_reord[col_ship_date] = summary[col_ship_date]
-                    if col_margin and col_margin in summary.columns:
-                        summary_reord[col_margin] = summary[col_margin]
-                    if col_qty and col_qty in summary.columns:
-                        summary_reord[col_qty] = summary[col_qty]
+                    for col in cols_ordem:
+                        if col and col in summary.columns:
+                            if col not in summary_final.columns:
+                                # Primeira ocorrência
+                                summary_final[col] = summary[col]
+                            else:
+                                # Duplicação (para Value in €)
+                                summary_final[f"{col}_2"] = summary[col]
                     
-                    # Agora duplicar Value in € se existir
-                    if col_value_eur and col_value_eur in summary.columns:
-                        # Inserir cópia de Value in € na posição 9 (depois de SPO)
-                        cols_list = list(summary_reord.columns)
-                        spo_idx = cols_list.index(col_spo) if col_spo in cols_list else -1
-                        
-                        if spo_idx >= 0:
-                            summary_reord.insert(spo_idx + 1, f"{col_value_eur}_2", summary[col_value_eur])
-                    
-                    st.subheader(f"📋 Resumo CPO/SPO ({len(summary_reord)} linhas)")
-                    st.dataframe(summary_reord, use_container_width=True, hide_index=True)
+                    st.subheader(f"📋 Resumo CPO/SPO ({len(summary_final)} linhas)")
+                    st.dataframe(summary_final, use_container_width=True, hide_index=True)
                     
                     st.subheader("📊 Estatísticas")
                     col1, col2, col3, col4 = st.columns(4)
@@ -156,7 +151,7 @@ if uploaded_file:
                     
                     out = io.BytesIO()
                     with pd.ExcelWriter(out, engine="openpyxl") as writer:
-                        summary_reord.to_excel(writer, index=False, sheet_name="Sheet1", startrow=0)
+                        summary_final.to_excel(writer, index=False, sheet_name="Sheet1", startrow=0)
                         
                         if col_value_eur and col_currency and col_value_orig:
                             try:
@@ -166,7 +161,7 @@ if uploaded_file:
                                 col_idx_currency = None
                                 col_idx_orig = None
                                 
-                                for idx, col in enumerate(summary_reord.columns, 1):
+                                for idx, col in enumerate(summary_final.columns, 1):
                                     if col == col_value_eur and col_idx_eur is None:
                                         col_idx_eur = idx
                                     if col == col_currency and col_idx_currency is None:
@@ -175,12 +170,12 @@ if uploaded_file:
                                         col_idx_orig = idx
                                 
                                 if col_idx_eur and col_idx_currency and col_idx_orig:
-                                    for row_idx in range(2, len(summary_reord) + 2):
+                                    for row_idx in range(2, len(summary_final) + 2):
                                         currency_cell = f"{chr(64 + col_idx_currency)}{row_idx}"
                                         value_orig_cell = f"{chr(64 + col_idx_orig)}{row_idx}"
                                         formula = f'=IF({currency_cell}="EUR",{value_orig_cell},{value_orig_cell}/$F$1)'
                                         ws[f"{chr(64 + col_idx_eur)}{row_idx}"] = formula
-                                    st.info("✅ Fórmula de câmbio adicionada")
+                                    st.info("✅ Fórmula de câmbio adicionada na coluna Value in €")
                             except Exception as e:
                                 st.warning(f"Não conseguiu adicionar fórmula: {e}")
                     
