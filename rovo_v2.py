@@ -49,29 +49,29 @@ if uploaded_file:
         
         for col in cols_disponíveis:
             col_lower = col.lower()
-            if 'cpo' in col_lower:
+            if 'cpo' in col_lower and col_cpo is None:
                 col_cpo = col
-            if 'spo' in col_lower:
+            if 'spo' in col_lower and col_spo is None:
                 col_spo = col
-            if 'shipping' in col_lower or 'destination' in col_lower:
+            if ('shipping' in col_lower or 'destination' in col_lower) and col_shipping is None:
                 col_shipping = col
-            if 'collection' in col_lower:
+            if 'collection' in col_lower and col_collection is None:
                 col_collection = col
-            if 'client' in col_lower and 'po' in col_lower:
+            if 'client' in col_lower and 'po' in col_lower and col_client_po is None:
                 col_client_po = col
-            if 'value in original' in col_lower:
+            if 'value in original' in col_lower and col_value_orig is None:
                 col_value_orig = col
-            if 'currency' in col_lower:
+            if 'currency' in col_lower and col_currency is None:
                 col_currency = col
-            if 'value in €' in col_lower or 'value_eur' in col_lower:
+            if ('value in €' in col_lower or 'value_eur' in col_lower) and col_value_eur is None:
                 col_value_eur = col
-            if ('estimated' in col_lower or 'shipping date' in col_lower) and 'date' in col_lower:
+            if ('estimated' in col_lower or 'shipping date' in col_lower) and 'date' in col_lower and col_ship_date is None:
                 col_ship_date = col
-            if 'margin' in col_lower or 'direct margin' in col_lower:
+            if ('margin' in col_lower or 'direct margin' in col_lower) and col_margin is None:
                 col_margin = col
-            if 'qty' in col_lower or 'quant' in col_lower:
+            if ('qty' in col_lower or 'quant' in col_lower) and col_qty is None:
                 col_qty = col
-            if 'supplier' in col_lower:
+            if 'supplier' in col_lower and col_supplier is None:
                 col_supplier = col
         
         # Verificar se encontrou
@@ -96,27 +96,29 @@ if uploaded_file:
                     # ===== AGRUPAR =====
                     agg_dict = {}
                     
-                    # Texto (primeiro valor)
-                    text_cols = [col_shipping, col_collection, col_client_po, col_currency, col_ship_date, col_supplier]
-                    for col in text_cols:
-                        if col and col in df_proc.columns:
-                            agg_dict[col] = 'first'
-                    
                     # Números (soma)
                     numeric_agg = [col_value_orig, col_value_eur, col_margin, col_qty]
                     for col in numeric_agg:
                         if col and col in df_proc.columns:
                             agg_dict[col] = 'sum'
                     
-                    # Agrupar
+                    # Todas as outras colunas (primeiro valor)
+                    for col in df_proc.columns:
+                        if col not in agg_dict and col != col_cpo and col != col_spo:
+                            agg_dict[col] = 'first'
+                    
+                    # Agrupar por CPO e SPO
                     summary = df_proc.groupby([col_cpo, col_spo], as_index=False).agg(agg_dict)
                     
-                    # Reordenar colunas
-                    cols_ordem = [col_shipping, col_collection, col_client_po, col_cpo, col_value_orig, col_currency, col_value_eur, col_spo, col_ship_date, col_margin, col_qty, col_supplier]
-                    cols_ordem = [c for c in cols_ordem if c and c in summary.columns]
+                    # Reordenar colunas (colocar CPO e SPO primeiro)
+                    cols_ordem = [col_cpo, col_spo]
+                    for col in cols_disponíveis:
+                        if col not in cols_ordem and col in summary.columns:
+                            cols_ordem.append(col)
+                    
                     summary = summary[cols_ordem]
                     
-                    st.subheader("📋 Resumo CPO/SPO")
+                    st.subheader(f"📋 Resumo CPO/SPO ({len(summary)} linhas)")
                     st.dataframe(summary, use_container_width=True, hide_index=True)
                     
                     # ===== ESTATÍSTICAS =====
@@ -158,11 +160,12 @@ if uploaded_file:
                                     value_orig_cell = f"{chr(64 + col_idx_orig)}{row_idx}"
                                     formula = f'=IF({currency_cell}="EUR",{value_orig_cell},{value_orig_cell}/$F$1)'
                                     ws[f"{chr(64 + col_idx_eur)}{row_idx}"] = formula
+                                st.info("✅ Fórmula de câmbio adicionada na coluna 'Value in €'")
                             except Exception as e:
-                                st.warning(f"Não conseguiu adicionar fórmula de câmbio: {e}")
+                                st.warning(f"Não conseguiu adicionar fórmula: {e}")
                     
                     filename = f"Financial_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                    st.download_button("📥 Download", out.getvalue(), filename, type="primary")
+                    st.download_button("📥 Download Relatório", out.getvalue(), filename, type="primary")
                     st.success("✅ Pronto!")
                     
                 except Exception as e:
