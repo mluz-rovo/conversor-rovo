@@ -110,13 +110,35 @@ if uploaded_file:
                     # Agrupar por CPO e SPO
                     summary = df_proc.groupby([col_cpo, col_spo], as_index=False).agg(agg_dict)
                     
-                    # Reordenar colunas (colocar CPO e SPO primeiro)
-                    cols_ordem = [col_cpo, col_spo]
-                    for col in cols_disponíveis:
-                        if col not in cols_ordem and col in summary.columns:
-                            cols_ordem.append(col)
+                    # ===== REORDENAR COLUNAS NA ORDEM EXATA SOLICITADA =====
+                    cols_ordem_solicitada = [
+                        col_shipping,           # Shipping destination
+                        col_collection,         # Collection
+                        col_client_po,          # Client PO
+                        col_cpo,                # CPO
+                        col_value_orig,         # Value in original currency
+                        col_currency,           # Currency
+                        col_value_eur,          # Value in €
+                        col_spo,                # SPO
+                        col_value_eur,          # Value in € (2x conforme solicitado)
+                        col_supplier,           # Supplier
+                        col_ship_date,          # Estimated shipping date
+                        col_margin,             # Direct Margin
+                        col_qty                 # Qty
+                    ]
                     
-                    summary = summary[cols_ordem]
+                    # Filtrar colunas que existem e remover duplicatas mantendo ordem
+                    cols_ordem_final = []
+                    for col in cols_ordem_solicitada:
+                        if col and col in summary.columns and col not in cols_ordem_final:
+                            cols_ordem_final.append(col)
+                    
+                    # Adicionar qualquer coluna extra que não estava na lista
+                    for col in summary.columns:
+                        if col not in cols_ordem_final:
+                            cols_ordem_final.append(col)
+                    
+                    summary = summary[cols_ordem_final]
                     
                     st.subheader(f"📋 Resumo CPO/SPO ({len(summary)} linhas)")
                     st.dataframe(summary, use_container_width=True, hide_index=True)
@@ -149,18 +171,27 @@ if uploaded_file:
                             try:
                                 ws = writer.sheets["Sheet1"]
                                 
-                                # Encontrar índices das colunas
-                                col_idx_eur = list(summary.columns).index(col_value_eur) + 1
-                                col_idx_currency = list(summary.columns).index(col_currency) + 1
-                                col_idx_orig = list(summary.columns).index(col_value_orig) + 1
+                                # Encontrar índices das colunas (primeira ocorrência de Value in €)
+                                col_idx_eur = None
+                                col_idx_currency = None
+                                col_idx_orig = None
+                                
+                                for idx, col in enumerate(cols_ordem_final, 1):
+                                    if col == col_value_eur and col_idx_eur is None:
+                                        col_idx_eur = idx
+                                    if col == col_currency and col_idx_currency is None:
+                                        col_idx_currency = idx
+                                    if col == col_value_orig and col_idx_orig is None:
+                                        col_idx_orig = idx
                                 
                                 # Adicionar fórmula para cada linha
-                                for row_idx in range(2, len(summary) + 2):
-                                    currency_cell = f"{chr(64 + col_idx_currency)}{row_idx}"
-                                    value_orig_cell = f"{chr(64 + col_idx_orig)}{row_idx}"
-                                    formula = f'=IF({currency_cell}="EUR",{value_orig_cell},{value_orig_cell}/$F$1)'
-                                    ws[f"{chr(64 + col_idx_eur)}{row_idx}"] = formula
-                                st.info("✅ Fórmula de câmbio adicionada na coluna 'Value in €'")
+                                if col_idx_eur and col_idx_currency and col_idx_orig:
+                                    for row_idx in range(2, len(summary) + 2):
+                                        currency_cell = f"{chr(64 + col_idx_currency)}{row_idx}"
+                                        value_orig_cell = f"{chr(64 + col_idx_orig)}{row_idx}"
+                                        formula = f'=IF({currency_cell}="EUR",{value_orig_cell},{value_orig_cell}/$F$1)'
+                                        ws[f"{chr(64 + col_idx_eur)}{row_idx}"] = formula
+                                    st.info("✅ Fórmula de câmbio adicionada")
                             except Exception as e:
                                 st.warning(f"Não conseguiu adicionar fórmula: {e}")
                     
