@@ -430,7 +430,7 @@ with tab1:
 with tab2:
     st.title("💰 Financial Control - Resumo CPO/SPO")
 
-    st.info("📤 Carregue o seu Excel. As colunas serão detectadas automaticamente e agrupadas por CPO/SPO.")
+    st.info("📤 Carregue o seu Excel. As colunas serão agrupadas por CPO/SPO com totais de quantidades.")
 
     uploaded_file = st.file_uploader("Upload seu Excel financeiro", type=["xlsx"], key="financial_upload")
 
@@ -444,144 +444,90 @@ with tab2:
             else:
                 df_combined = pd.read_excel(uploaded_file, sheet_name=0)
             
-            st.subheader("📋 Preview dos Dados")
-            st.write(f"✅ Carregadas **{len(df_combined)}** linhas")
-            with st.expander("Ver dados completos", expanded=False):
-                st.dataframe(df_combined, use_container_width=True)
+            st.subheader("📋 Colunas Detectadas")
+            st.write(df_combined.columns.tolist())
             
-            # NÃO AGRUPAR - APENAS REORDENAR E DUPLICAR COLUNAS
             cols_disponíveis = df_combined.columns.tolist()
-            st.subheader("⚙️ Colunas Detectadas")
-            st.write(cols_disponíveis)
             
-            col_shipping = None
-            col_collection = None
-            col_client_po = None
             col_cpo = None
-            col_value_orig = None
-            col_currency = None
-            col_value_eur = None
             col_spo = None
-            col_ship_date = None
-            col_margin = None
             col_qty = None
-            col_supplier = None
             
             for col in cols_disponíveis:
                 col_lower = col.lower()
-                if ('shipping' in col_lower or 'destination' in col_lower) and col_shipping is None:
-                    col_shipping = col
-                if 'collection' in col_lower and col_collection is None:
-                    col_collection = col
-                if 'client' in col_lower and 'po' in col_lower and col_client_po is None:
-                    col_client_po = col
                 if 'cpo' in col_lower and col_cpo is None:
                     col_cpo = col
-                if 'value in original' in col_lower and col_value_orig is None:
-                    col_value_orig = col
-                if 'currency' in col_lower and col_currency is None:
-                    col_currency = col
-                if ('value in €' in col_lower or 'value_eur' in col_lower) and col_value_eur is None:
-                    col_value_eur = col
                 if 'spo' in col_lower and col_spo is None:
                     col_spo = col
-                if ('estimated' in col_lower or 'shipping date' in col_lower) and 'date' in col_lower and col_ship_date is None:
-                    col_ship_date = col
-                if ('margin' in col_lower or 'direct margin' in col_lower) and col_margin is None:
-                    col_margin = col
                 if ('qty' in col_lower or 'quant' in col_lower) and col_qty is None:
                     col_qty = col
-                if 'supplier' in col_lower and col_supplier is None:
-                    col_supplier = col
             
-            if st.button("🔄 Processar Dados", type="primary"):
-                try:
-                    df_proc = df_combined.copy()
-                    
-                    # REORDENAR COLUNAS - SEM AGRUPAR
-                    cols_ordem = [
-                        col_shipping,
-                        col_collection,
-                        col_client_po,
-                        col_cpo,
-                        col_value_orig,
-                        col_currency,
-                        col_value_eur,
-                        col_spo,
-                        col_value_eur,
-                        col_supplier,
-                        col_ship_date,
-                        col_margin,
-                        col_qty
-                    ]
-                    
-                    summary_final = pd.DataFrame()
-                    
-                    for col in cols_ordem:
-                        if col and col in df_proc.columns:
-                            if col not in summary_final.columns:
-                                summary_final[col] = df_proc[col]
-                            else:
-                                summary_final[f"{col}_2"] = df_proc[col]
-                    
-                    st.subheader(f"📋 Resumo CPO/SPO ({len(summary_final)} linhas)")
-                    st.dataframe(summary_final, use_container_width=True, hide_index=True)
-                    
-                    st.subheader("📊 Estatísticas")
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        if col_cpo and col_cpo in df_proc.columns:
-                            st.metric("Total CPOs", df_proc[col_cpo].nunique())
-                    with col2:
-                        if col_spo and col_spo in df_proc.columns:
-                            st.metric("Total SPOs", df_proc[col_spo].nunique())
-                    with col3:
-                        if col_value_eur and col_value_eur in df_proc.columns:
-                            total = pd.to_numeric(df_proc[col_value_eur], errors='coerce').sum()
-                            st.metric("Valor Total (€)", f"€{total:,.2f}")
-                    with col4:
-                        if col_margin and col_margin in df_proc.columns:
-                            total = pd.to_numeric(df_proc[col_margin], errors='coerce').sum()
-                            st.metric("Margem Total (€)", f"€{total:,.2f}")
-                    
-                    st.subheader("⬇️ Descarregar")
-                    
-                    out = io.BytesIO()
-                    with pd.ExcelWriter(out, engine="openpyxl") as writer:
-                        summary_final.to_excel(writer, index=False, sheet_name="Sheet1", startrow=0)
+            if not col_cpo or not col_spo:
+                st.error("❌ Colunas CPO ou SPO não encontradas!")
+                st.write(f"Colunas disponíveis: {cols_disponíveis}")
+            else:
+                st.success(f"✅ CPO: {col_cpo}, SPO: {col_spo}, QTY: {col_qty}")
+                
+                if st.button("🔄 Processar Dados", type="primary"):
+                    try:
+                        df_proc = df_combined.copy()
                         
-                        if col_value_eur and col_currency and col_value_orig:
-                            try:
-                                ws = writer.sheets["Sheet1"]
-                                
-                                col_idx_eur = None
-                                col_idx_currency = None
-                                col_idx_orig = None
-                                
-                                for idx, col in enumerate(summary_final.columns, 1):
-                                    if col == col_value_eur and col_idx_eur is None:
-                                        col_idx_eur = idx
-                                    if col == col_currency and col_idx_currency is None:
-                                        col_idx_currency = idx
-                                    if col == col_value_orig and col_idx_orig is None:
-                                        col_idx_orig = idx
-                                
-                                if col_idx_eur and col_idx_currency and col_idx_orig:
-                                    for row_idx in range(2, len(summary_final) + 2):
-                                        currency_cell = f"{chr(64 + col_idx_currency)}{row_idx}"
-                                        value_orig_cell = f"{chr(64 + col_idx_orig)}{row_idx}"
-                                        formula = f'=IF({currency_cell}="EUR",{value_orig_cell},{value_orig_cell}/$F$1)'
-                                        ws[f"{chr(64 + col_idx_eur)}{row_idx}"] = formula
-                                    st.info("✅ Fórmula de câmbio adicionada")
-                            except Exception as e:
-                                st.warning(f"Erro ao adicionar fórmula: {e}")
-                    
-                    filename = f"Financial_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                    st.download_button("📥 Download Relatório", out.getvalue(), filename, type="primary")
-                    st.success("✅ Pronto!")
-                    
-                except Exception as e:
-                    st.error(f"❌ Erro: {e}")
+                        # Converter colunas numéricas
+                        if col_qty and col_qty in df_proc.columns:
+                            df_proc[col_qty] = pd.to_numeric(df_proc[col_qty], errors='coerce').fillna(0)
+                        
+                        # Identificar colunas numéricas e de texto
+                        numeric_cols = df_proc.select_dtypes(include=['number']).columns.tolist()
+                        text_cols = [c for c in df_proc.columns if c not in numeric_cols and c != col_cpo and c != col_spo]
+                        
+                        # Preparar agg_dict
+                        agg_dict = {}
+                        
+                        # Somar colunas numéricas
+                        for col in numeric_cols:
+                            if col != col_cpo and col != col_spo:
+                                agg_dict[col] = 'sum'
+                        
+                        # Primeiro valor para colunas texto
+                        for col in text_cols:
+                            agg_dict[col] = 'first'
+                        
+                        # Agrupar por CPO e SPO
+                        summary = df_proc.groupby([col_cpo, col_spo], as_index=False).agg(agg_dict)
+                        
+                        # Reordenar colunas
+                        cols_ordem = [col_cpo, col_spo] + [c for c in cols_disponíveis if c not in [col_cpo, col_spo]]
+                        cols_ordem = [c for c in cols_ordem if c in summary.columns]
+                        summary = summary[cols_ordem]
+                        
+                        st.subheader(f"📋 Resumo CPO/SPO ({len(summary)} combinações)")
+                        st.dataframe(summary, use_container_width=True, hide_index=True)
+                        
+                        st.subheader("📊 Estatísticas")
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            st.metric("Total CPOs", summary[col_cpo].nunique())
+                        with col2:
+                            st.metric("Total SPOs", summary[col_spo].nunique())
+                        with col3:
+                            if col_qty and col_qty in summary.columns:
+                                total_qty = summary[col_qty].sum()
+                                st.metric("Total QTY", f"{total_qty:,.0f}")
+                        
+                        st.subheader("⬇️ Descarregar")
+                        
+                        out = io.BytesIO()
+                        with pd.ExcelWriter(out, engine="openpyxl") as writer:
+                            summary.to_excel(writer, index=False, sheet_name="Sheet1", startrow=0)
+                        
+                        filename = f"Financial_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                        st.download_button("📥 Download Relatório", out.getvalue(), filename, type="primary")
+                        st.success("✅ Pronto!")
+                        
+                    except Exception as e:
+                        st.error(f"❌ Erro: {e}")
+                        import traceback
+                        st.write(traceback.format_exc())
         
         except Exception as e:
             st.error(f"❌ Erro ao ler ficheiro: {e}")
@@ -596,5 +542,7 @@ with tab3:
     ### 💰 Financial Control Tab
     1. Carregue o Excel preenchido
     2. Click "Processar Dados"
-    3. Download relatório com colunas reordenadas
+    3. Download relatório **agrupado por CPO/SPO** com:
+       - Totais de quantidades (soma)
+       - Todas as outras colunas (primeira ocorrência)
     """)
