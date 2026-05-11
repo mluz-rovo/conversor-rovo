@@ -1,9 +1,11 @@
-import streamlit as st
+ import streamlit as st
 import pandas as pd
 import io
 import pdfplumber
 import re
 from datetime import datetime
+from openpyxl import load_workbook
+from openpyxl.styles import Font
 
 st.set_page_config(page_title="ROVO - Universal Converter", page_icon="🚀", layout="wide")
 
@@ -195,14 +197,11 @@ def make_excel(df_final, group_col):
     return out.getvalue()
 
 # ===========================================================================
-# TAB 1: CONVERTER
+# TAB 1: CONVERTER (Original)
 # ===========================================================================
 with tab1:
     st.title(f"📦 Converter: {client}")
 
-    # ===========================================================================
-    # STUSSY
-    # ===========================================================================
     if client == "Stussy":
         uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
 
@@ -266,9 +265,6 @@ with tab1:
                 st.error(f"Error: {e}")
                 st.exception(e)
 
-    # ===========================================================================
-    # SUPREME
-    # ===========================================================================
     elif client == "Supreme":
         supreme_type  = st.radio("File Type", ["Bulk", "SMS", "TOP"], horizontal=True)
         uploaded_file = st.file_uploader("Upload file", type=["xlsx"])
@@ -302,7 +298,7 @@ with tab1:
                                             color=df.iloc[i, 6], size=s_name, dest=dest,
                                         ))
 
-                else:  # SMS and TOP
+                else:
                     df   = xl.parse(xl.sheet_names[0], header=None)
                     dest = str(df.iloc[3, 7]).strip() if pd.notna(df.iloc[3, 7]) else "General"
                     sizes = {c: str(df.iloc[14, c]) for c in range(8, 13)
@@ -338,9 +334,6 @@ with tab1:
                 st.error(f"Error: {e}")
                 st.exception(e)
 
-    # ===========================================================================
-    # STUDIO NICHOLSON
-    # ===========================================================================
     elif client == "Studio Nicholson":
         uploaded_file = st.file_uploader("Upload PDF", type=["pdf"])
 
@@ -387,9 +380,6 @@ with tab1:
             if st.session_state.get("sn_excel"):
                 st.download_button("⬇️ Download PHC Excel", st.session_state["sn_excel"], "IMPORT_StudioNicholson.xlsx")
 
-    # ===========================================================================
-    # INDEX
-    # ===========================================================================
     elif client == "Index":
         st.info("Fill in the table below and click Download to generate the Excel file.")
 
@@ -472,21 +462,20 @@ with tab1:
             )
 
 # ===========================================================================
-# TAB 2: FINANCIAL CONTROL
+# TAB 2: FINANCIAL CONTROL (SIMPLIFICADO)
 # ===========================================================================
 with tab2:
     st.title("💰 Financial Control - Resumo CPO/SPO")
     
-    st.info("📤 Carregue o seu Excel com os dados financeiros para gerar um resumo agrupado por CPO e SPO")
+    st.info("📤 Carregue o seu Excel. As colunas serão automaticamente agrupadas por CPO/SPO. **Currency e Supplier** você preenche!")
     
     uploaded_file = st.file_uploader("Upload seu Excel financeiro", type=["xlsx"], key="financial_upload")
     
     if uploaded_file:
         try:
-            # Lê todas as abas do ficheiro
+            # Lê todas as abas
             excel_file = pd.ExcelFile(uploaded_file, engine="openpyxl")
             
-            # Se houver múltiplas abas, combina todas
             if len(excel_file.sheet_names) > 1:
                 all_sheets = {sheet: pd.read_excel(uploaded_file, sheet_name=sheet) for sheet in excel_file.sheet_names}
                 df_combined = pd.concat([df.assign(Source_Sheet=sheet) for sheet, df in all_sheets.items()], ignore_index=True)
@@ -499,47 +488,20 @@ with tab2:
             
             st.write(f"✅ Carregadas **{len(df_combined)}** linhas de dados")
             
-            # ===========================================================================
-            # CONFIGURAÇÃO DE COLUNAS
-            # ===========================================================================
-            st.subheader("⚙️ Mapear Colunas")
-            st.write("Selecione as colunas que correspondem aos seus dados:")
+            # COLUNAS PRÉ-DEFINIDAS (na ordem do print)
+            col_shipping = "Shipping destination"
+            col_collection = "Collection"
+            col_client_po = "Client PO"
+            col_cpo = "CPO"
+            col_value_orig = "Value in original currency"
+            col_currency = "Currency"
+            col_value_eur = "Value in €"
+            col_spo = "SPO"
+            col_ship_date = "Estimated shipping date"
+            col_margin = "Direct margin"
+            col_qty = "QTY"
+            col_supplier = "Supplier"
             
-            cols_list = df_combined.columns.tolist()
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                col_shipping = st.selectbox("Shipping Destination", cols_list)
-            with col2:
-                col_collection = st.selectbox("Collection", cols_list)
-            with col3:
-                col_client_po = st.selectbox("Client PO", cols_list)
-            with col4:
-                col_cpo = st.selectbox("CPO", cols_list)
-            
-            col1, col2, col3, col4 = st.columns(4)
-            with col1:
-                col_value_orig = st.selectbox("Value Original Currency", cols_list)
-            with col2:
-                col_currency = st.selectbox("Currency", cols_list)
-            with col3:
-                col_value_eur = st.selectbox("Value in €", cols_list)
-            with col4:
-                col_spo = st.selectbox("SPO", cols_list)
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                col_ship_date = st.selectbox("Estimated Shipping Date", cols_list)
-            with col2:
-                col_margin = st.selectbox("Direct Margin", cols_list)
-            with col3:
-                col_qty = st.selectbox("QTY", cols_list)
-            
-            col_supplier = st.selectbox("Supplier", cols_list)
-            
-            # ===========================================================================
-            # PROCESSAR
-            # ===========================================================================
             if st.button("🔄 Processar Dados", type="primary"):
                 try:
                     df_proc = df_combined.copy()
@@ -550,71 +512,76 @@ with tab2:
                         if col in df_proc.columns:
                             df_proc[col] = pd.to_numeric(df_proc[col], errors='coerce').fillna(0)
                     
-                    # ===========================================================================
                     # RESUMO POR CPO/SPO
-                    # ===========================================================================
-                    st.subheader("📋 Resumo (CPO/SPO)")
+                    agg_dict = {}
+                    text_cols = [col_shipping, col_collection, col_client_po, col_currency, col_ship_date, col_supplier]
+                    for col in text_cols:
+                        if col in df_proc.columns:
+                            agg_dict[col] = 'first'
                     
-                    agg_dict = {
-                        col_shipping: 'first',
-                        col_collection: 'first',
-                        col_client_po: 'first',
-                        col_value_orig: 'sum',
-                        col_currency: 'first',
-                        col_value_eur: 'sum',
-                        col_ship_date: 'first',
-                        col_margin: 'sum',
-                        col_qty: 'sum',
-                        col_supplier: 'first'
-                    }
-                    
-                    # Filtrar apenas colunas que existem
-                    agg_dict = {k: v for k, v in agg_dict.items() if k in df_proc.columns}
+                    numeric_cols_agg = [col_value_orig, col_value_eur, col_margin, col_qty]
+                    for col in numeric_cols_agg:
+                        if col in df_proc.columns:
+                            agg_dict[col] = 'sum'
                     
                     summary_spo = df_proc.groupby([col_cpo, col_spo], as_index=False).agg(agg_dict)
                     
-                    summary_spo = summary_spo.rename(columns={
-                        col_cpo: 'CPO',
-                        col_spo: 'SPO',
-                        col_shipping: 'Shipping Destination',
-                        col_collection: 'Collection',
-                        col_client_po: 'Client PO',
-                        col_value_orig: 'Value in Original Currency',
-                        col_currency: 'Currency',
-                        col_value_eur: 'Value in €',
-                        col_ship_date: 'Estimated Shipping Date',
-                        col_margin: 'Direct Margin',
-                        col_qty: 'QTY',
-                        col_supplier: 'Supplier'
-                    })
+                    # Reordenar conforme pedido
+                    cols_ordem = [
+                        col_shipping, col_collection, col_client_po, col_cpo,
+                        col_value_orig, col_currency, col_value_eur, col_spo,
+                        col_ship_date, col_margin, col_qty, col_supplier
+                    ]
+                    cols_ordem = [col for col in cols_ordem if col in summary_spo.columns]
+                    summary_spo = summary_spo[cols_ordem]
                     
+                    st.subheader("📋 Resumo (CPO/SPO)")
                     st.dataframe(summary_spo, use_container_width=True, hide_index=True)
                     
-                    # ===========================================================================
                     # ESTATÍSTICAS
-                    # ===========================================================================
                     st.subheader("📊 Estatísticas")
-                    
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("Total CPOs", summary_spo['CPO'].nunique())
+                        st.metric("Total CPOs", summary_spo[col_cpo].nunique())
                     with col2:
                         st.metric("Total SPOs", len(summary_spo))
                     with col3:
-                        total_value = df_proc[col_value_eur].sum()
-                        st.metric("Valor Total (€)", f"€{total_value:,.2f}")
+                        if col_value_eur in df_proc.columns:
+                            total_value = df_proc[col_value_eur].sum()
+                            st.metric("Valor Total (€)", f"€{total_value:,.2f}")
                     with col4:
-                        total_margin = df_proc[col_margin].sum()
-                        st.metric("Margem Total (€)", f"€{total_margin:,.2f}")
+                        if col_margin in df_proc.columns:
+                            total_margin = df_proc[col_margin].sum()
+                            st.metric("Margem Total (€)", f"€{total_margin:,.2f}")
                     
-                    # ===========================================================================
-                    # EXPORT
-                    # ===========================================================================
+                    # EXPORT COM FÓRMULAS
                     st.subheader("⬇️ Descarregar Relatório")
                     
                     out = io.BytesIO()
                     with pd.ExcelWriter(out, engine="openpyxl") as writer:
-                        summary_spo.to_excel(writer, index=False, sheet_name="Sheet1")
+                        summary_spo.to_excel(writer, index=False, sheet_name="Sheet1", startrow=0)
+                        ws = writer.sheets["Sheet1"]
+                        
+                        # Encontrar índices das colunas
+                        col_idx_value_eur = None
+                        col_idx_currency = None
+                        col_idx_value_orig = None
+                        
+                        for i, col_name in enumerate(cols_ordem, 1):
+                            if col_name == col_value_eur:
+                                col_idx_value_eur = i
+                            elif col_name == col_currency:
+                                col_idx_currency = i
+                            elif col_name == col_value_orig:
+                                col_idx_value_orig = i
+                        
+                        # Adicionar fórmula se colunas existem
+                        if col_idx_value_eur and col_idx_currency and col_idx_value_orig:
+                            for row_idx in range(2, len(summary_spo) + 2):
+                                currency_cell = f"{chr(64 + col_idx_currency)}{row_idx}"
+                                value_orig_cell = f"{chr(64 + col_idx_value_orig)}{row_idx}"
+                                formula = f'=IF({currency_cell}="EUR",{value_orig_cell},{value_orig_cell}/$F$1)'
+                                ws[f"{chr(64 + col_idx_value_eur)}{row_idx}"] = formula
                     
                     filename = f"Financial_Report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
                     
@@ -627,6 +594,7 @@ with tab2:
                     )
                     
                     st.success("✅ Relatório gerado com sucesso!")
+                    st.info("💡 Dica: Preencha 'Currency' (EUR, USD, etc) e 'Supplier' no Excel. A coluna 'Value in €' tem fórmula de câmbio automática!")
                     
                 except Exception as e:
                     st.error(f"❌ Erro ao processar: {e}")
@@ -634,10 +602,6 @@ with tab2:
         
         except Exception as e:
             st.error(f"❌ Erro ao ler ficheiro: {e}")
-            st.write("💡 Certifique-se que:")
-            st.write("- O ficheiro é Excel (.xlsx)")
-            st.write("- Tem as colunas esperadas (CPO, SPO, etc)")
-            st.write("- As colunas numéricas contêm apenas números")
 
 # ===========================================================================
 # TAB 3: HELP
@@ -647,20 +611,16 @@ with tab3:
     
     st.markdown("""
     ### 📦 Converter Tab
-    1. **Selecione Cliente**: Escolha entre Stussy, Supreme, Studio Nicholson, ou Index
-    2. **Upload Ficheiro**: Carregue o ficheiro bruto (XLSX para Stussy/Supreme/Index, PDF para Studio Nicholson)
-    3. **Configure**: Adicione referência e designação se necessário
-    4. **Download**: Descarregue o Excel PHC
+    Transforma ficheiros brutos em Excel PHC
     
     ### 💰 Financial Control Tab
-    1. **Upload Excel**: Carregue o Excel que preencheu
-    2. **Mapear Colunas**: Selecione CPO, SPO, Valor, etc. (dropdowns automáticos)
-    3. **Processar**: Click em "Processar Dados"
-    4. **Revisar**: Veja o resumo gerado
-    5. **Download**: Descarregue Excel com 1 aba contendo o resumo
+    1. **Upload**: Carregue seu Excel
+    2. **Processar**: Click em "Processar Dados"
+    3. **Resultado**: Excel agrupado por CPO/SPO com:
+       - **Currency**: Você preenche (EUR, USD, etc.)
+       - **Supplier**: Você preenche
+       - **Value in €**: Fórmula automática de câmbio
     
-    ### 📊 O que Você Obtém
-    - Uma aba com resumo agrupado por CPO e SPO
-    - Colunas: Shipping Destination, Collection, Client PO, CPO, SPO, Value €, Margem, QTY, etc.
-    - Estatísticas: Total CPOs, Total SPOs, Valor Total €, Margem Total €
+    ### 📊 Estrutura das Colunas (Ordem Fixa)
+    Shipping destination → Collection → Client PO → CPO → Value in original currency → Currency → Value in € → SPO → Estimated shipping date → Direct margin → QTY → Supplier
     """)
